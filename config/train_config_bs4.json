@@ -1,0 +1,110 @@
+{
+    "patch_size": {
+        "AutoPETII": [
+            96,
+            96,
+            96
+        ],
+        "Hecktor2022": [
+            128,
+            128,
+            64
+        ],
+        "BraTS2021": [
+            96,
+            96,
+            96
+        ],
+        "MSD2019": [
+            96,
+            96,
+            96
+        ]
+    },
+    "spacing": {
+        "AutoPETII": [
+            2.03642,
+            2.03642,
+            3
+        ],
+        "Hecktor2022": [
+            1,
+            1,
+            1
+        ],
+        "BraTS2021": [
+            1,
+            1,
+            1
+        ],
+        "AutoPETIII": [
+            1,
+            1,
+            1
+        ],
+        "MSD2019": [
+            1,
+            1,
+            1
+        ]
+    },
+    "batch_size": 2,
+    "deep_Loss_weight": [
+        1,
+        1,
+        1,
+        1
+    ],
+    "RC_Loss_weight": 0.5,
+    "Feature_Loss_weight": 2.0,
+    "train_rate": 0.6,
+    "val_rate": 0.2,
+    "epochs": 300,
+    "show_deep_metric": true,
+    "save_model_interval": 5,
+    "val_interval": 5,
+    "optimizer": {
+        "optimizer_type": "adamw",
+        "optimizer_args": {
+            "lr": 0.00025,
+            "weight_decay": 0.01
+        }
+    },
+    "warmup_scheduler": {
+        "enabled": true,
+        "warmup_epochs": 10
+    },
+    "train_scheduler": {
+        "scheduler_type": "cosine_annealing",
+        "scheduler_args": {
+            "epochs": 290,
+            "min_lr": 6e-06
+        }
+    },
+    "save_path": "./save/",
+    "log_path": "./logs/",
+    "config_path": "./config/",
+    "dataset_path": {
+        "AutoPETII": {
+            "ct_path": "./datasets/AutoPETII_spac_norm/imagesTr/*0001.nii.gz",
+            "pet_path": "./datasets/AutoPETII_spac_norm/imagesTr/*0000.nii.gz",
+            "label_path": "./datasets/AutoPETII_spac_norm/labelsTr/*.nii.gz"
+        },
+        "Hecktor2022": {
+            "ct_path": "./datasets/Hecktor2022_spac_norm/imagesTr/*CT.nii.gz",
+            "pet_path": "./datasets/Hecktor2022_spac_norm/imagesTr/*PT.nii.gz",
+            "label_path": "./datasets/Hecktor2022_spac_norm/labelsTr/*.nii.gz"
+        },
+        "BraTS2021": {
+            "flair_path": "./datasets/BraTS2021_spac_norm/*/*_flair.nii.gz",
+            "t1_path": "./datasets/BraTS2021_spac_norm/*/*_t1.nii.gz",
+            "t1ce_path": "./datasets/BraTS2021_spac_norm/*/*_t1ce.nii.gz",
+            "t2_path": "./datasets/BraTS2021_spac_norm/*/*_t2.nii.gz",
+            "label_path": "./datasets/BraTS2021_spac_norm/*/*_seg.nii.gz"
+        },
+        "MSD2019": {
+            "data_path": "./datasets/MSD2019_Task01/imagesTr/*.nii.gz",
+            "label_path": "./datasets/MSD2019_Task01/labelsTr/*.nii.gz"
+        }
+    }
+}

@@ -1,0 +1,312 @@
+import os
+import warnings
+warnings.filterwarnings("ignore")
+
+from .seed import seed_everything
+seed_everything(seed = 12345)
+
+from .optimizers.optimizers import build_optimizer
+from .optimizers.schedulers import build_scheduler
+
+import torch
+from glob import glob
+from utils.metric.metrics import show_deep_metrics
+from monai.data import list_data_collate, DataLoader
+from datetime import datetime
+import monai
+from monai.transforms import (
+    CropForegroundd,
+    Compose,
+    LoadImaged,
+    RandCropByPosNegLabeld,
+    ToTensord,
+    EnsureChannelFirstd,
+    RandRotated,
+)
+import time
+from torch.utils.tensorboard import SummaryWriter
+from .load_model import load_model, save_checkpoint, load_checkpoint
+from utils.get_logger import get_logger
+from .loss import Loss
+
+
+def run_train(args, train_config, model_config):
+
+    torch.set_num_threads(args.num_workers)
+    device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
+    torch.cuda.set_device(device)
+
+    date = datetime.now().strftime("%m_%d")
+    log_path = os.path.join(train_config['log_path'], "Train", args.model_name)
+    os.makedirs(log_path, exist_ok=True)
+    
+    model = load_model(args.model_name, model_config)
+
+    optimizer = build_optimizer(
+        model=model,
+        optimizer_type=train_config["optimizer"]["optimizer_type"],
+        optimizer_args=train_config["optimizer"]["optimizer_args"],
+    )
+    warmup_scheduler = build_scheduler(
+        optimizer=optimizer, scheduler_type="warmup_scheduler", config=train_config
+    )
+    training_scheduler = build_scheduler(
+        optimizer=optimizer,
+        scheduler_type="training_scheduler",
+        config=train_config,
+    )
+    warmup_epoch = train_config['warmup_scheduler']['warmup_epochs']
+
+    start_epoch, best_train_dice = 0, 0
+    scheduler = None
+    if args.checkpoint_path is not None:
+        model, optimizer, scheduler, start_epoch, best_train_dice = load_checkpoint(model, args.checkpoint_path, 
+                                                                                    optimizer, training_scheduler,
+                                                                                    warmup_scheduler, device, 
+                                                                                    warmup_epoch)
+        date = "_".join(args.checkpoint_path.split("/")[-2].split("_")[:2])
+    else:
+        scheduler = warmup_scheduler
+    model.to(device)
+    
+    if args.model_index is not None:
+        logger_name = f"{date}_{args.dataset_name}_{args.model_index}.log"
+    else:
+        logger_name =  f"{date}_{args.dataset_name}.log"
+    logger = get_logger(save_dir = log_path,
+                        distributed_rank = 0,
+                        filename = logger_name)
+    
+    if args.checkpoint_path is not None:
+        logger.info("Load Checkpoint, Continue to Train!!!!")
+    logger.info(f"Using GPU: {args.gpu_id}")
+
+    # set file path
+    images_CT = sorted(glob(train_config['dataset_path'][args.dataset_name]["ct_path"]))
+    images_PET = sorted(glob(train_config['dataset_path'][args.dataset_name]["pet_path"]))
+    labels = sorted(glob(train_config['dataset_path'][args.dataset_name]["label_path"]))
+
+    # set save path
+    index = f"_{args.model_index}" if args.model_index is not None else ""
+    save_path = os.path.join(train_config['save_path'], args.dataset_name, args.model_name, date + index)
+    os.makedirs(save_path, exist_ok=True)
+    logger.info(f"Checkpoint Save path: {save_path}")
+    logger.info(f"Now Model Config: \n{model_config[args.model_name]}\n")
+    
+    modal_index = [0, 0]
+    if args.select_modal is not None:
+        modal_index[int(args.select_modal)] = 1
+    else:
+        modal_index = [1 for _ in range(len(modal_index))]
+    num_modal = len(model_config[args.model_name]['in_ch'])
+    
+    
+    logger.info(f"Modal_index: {modal_index}")
+    
+    # loss for seg_rc_style_loss
+    seg_rc_style_loss = Loss(args=args, config=train_config, device=device, num_modal=num_modal)
+
+    # data transform
+    train_transforms = Compose(
+            [
+                LoadImaged(keys=["img", "img_ct", "seg"]),
+                EnsureChannelFirstd(keys=["img", "img_ct","seg"]),
+                CropForegroundd(keys=["img","img_ct","seg"], source_key="img", select_fn=lambda x:x>x.min()),
+                RandCropByPosNegLabeld(
+                        keys=["img","img_ct","seg"],
+                        label_key="seg",
+                        spatial_size=train_config['patch_size'][args.dataset_name],
+                        pos=1,
+                        neg=1,
+                        num_samples=2,
+                    ),
+                RandRotated(keys=['img', 'img_ct', 'seg'], 
+                        range_z=15, 
+                        prob=0.5,
+                    ),
+                ToTensord(keys=["img", "img_ct"]),
+            ]
+        )
+
+    val_transforms = Compose(
+            [
+                LoadImaged(keys=["img", "img_ct", "seg"]),
+                EnsureChannelFirstd(keys=["img", "img_ct", "seg"]),
+                CropForegroundd(keys=["img","img_ct","seg"], source_key="img", select_fn=lambda x:x>x.min()),
+
+                RandCropByPosNegLabeld(
+                    keys=["img","img_ct","seg"],
+                    label_key="seg",
+                    spatial_size=train_config['patch_size'][args.dataset_name],
+                    pos=1,
+                    neg=1,
+                    num_samples=2,
+                ),
+                ToTensord(keys=["img", "img_ct"]),
+            ]
+        )
+
+    length = len(images_CT)
+    logger.info(f"The number of samples: {length}")
+
+    # split dataset
+    split = train_config['train_rate']
+    split_1 = train_config['train_rate'] + train_config['val_rate']
+    train_images = images_PET[: int(split * length)]
+    train_ct_images = images_CT[: int(split * length)]
+    train_labels = labels[: int(split * length)]
+
+    test_images = images_PET[int(split * length):int(split_1*length)]
+    test_ct_images = images_CT[int(split * length):int(split_1*length)]
+    test_labels = labels[int(split * length):int(split_1*length)]
+    
+
+    train_files = [{"img": img, "img_ct": ct,"seg": seg} \
+                    for img, ct, seg in zip(train_images, train_ct_images, train_labels)]
+    val_files = [{"img": img, "img_ct": ct,"seg": seg} \
+                    for img, ct, seg in zip(test_images, test_ct_images, test_labels)]
+    logger.info(f"Training set includes: {len(train_files)}")
+    logger.info(f"Validation set includes: {len(val_files)}")
+
+    # create dataloader
+    train_ds = monai.data.Dataset(data=train_files, transform=train_transforms)
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=train_config['batch_size'],
+        num_workers=args.num_workers,
+        collate_fn=list_data_collate,
+        shuffle=True,
+        pin_memory=torch.cuda.is_available(),
+    )
+
+    val_ds = monai.data.Dataset(data=val_files, transform=val_transforms)
+    val_loader = DataLoader(
+        val_ds, 
+        batch_size=train_config['batch_size'], 
+        num_workers=args.num_workers,
+        collate_fn=list_data_collate,
+        pin_memory=torch.cuda.is_available(),
+        )
+
+    writer = SummaryWriter(os.path.join(save_path, 'logs'))
+
+    # training start
+    iteration = 0
+    best_val_dice = 0
+    step = 0
+    
+    for epoch in range(start_epoch, train_config['epochs']):
+        if epoch == warmup_epoch:
+            scheduler = training_scheduler
+        start = time.time()
+        model.train()
+        total_loss, total_fp, total_fn, total_iou, total_dice = 0, 0, 0, 0, 0
+        logger.info(f"\n**************************************|| Start Epoch {epoch+1} Training ||**************************************\n")
+        for step, batch_data in enumerate(train_loader):
+            iteration += 1
+            ct, pet, labels = batch_data["img_ct"].type(torch.FloatTensor).to(device),\
+                  batch_data["img"].type(torch.FloatTensor).to(device),\
+                  batch_data["seg"].type(torch.LongTensor).to(device)
+            optimizer.zero_grad()
+            
+            inputs = [ct, pet]
+            inputs = torch.cat([inputs[i] for i in range(len(inputs)) if modal_index[i]], dim=1)
+            output = model(inputs)
+
+            labels[labels!=0] = 1
+
+            loss = seg_rc_style_loss(output, labels, sr_labels=inputs)
+            loss.backward()
+            optimizer.step()
+
+            l = loss.item()
+            
+            string = f"train {epoch+1}/{train_config['epochs']} {step}/{len(train_loader)} Training Loss:{l:.4f}\n"
+            
+            # only for print metrics
+            not_pred = 0
+            if args.model_name == "VeloxSeg":
+                not_pred += 2 + num_modal
+
+            if not_pred > 0:
+                metrics, deep_metric_string = show_deep_metrics(output[:-not_pred], labels, train_config['show_deep_metric'])
+            else:
+                metrics, deep_metric_string = show_deep_metrics(output, labels, train_config['show_deep_metric'])
+            logger.info(string + deep_metric_string)
+
+            writer.add_scalar('Training Loss', l, iteration)
+            writer.add_scalar('Training FP', metrics[0], iteration)
+            writer.add_scalar('Training FN', metrics[1], iteration)
+            writer.add_scalar('Training IOU', metrics[2], iteration)
+            writer.add_scalar('Training Dice', metrics[3], iteration)
+            
+            total_loss += l
+            total_fp += metrics[0]
+            total_fn += metrics[1]
+            total_iou += metrics[2]
+            total_dice += metrics[3]
+            del ct, pet, labels, output, loss, batch_data
+
+        scheduler.step()
+        mean_loss = total_loss / len(train_loader)
+        mean_fp = total_fp / len(train_loader)
+        mean_fn = total_fn / len(train_loader)
+        mean_iou = total_iou / len(train_loader)
+        mean_dice = total_dice / len(train_loader)
+
+        if epoch % train_config['save_model_interval'] == 0:
+                save_checkpoint(model, optimizer, scheduler, epoch, best_train_dice, os.path.join(save_path, f"{epoch}.pth"))
+
+        if mean_dice >= best_train_dice:
+            logger.info(f"get new best dice {best_train_dice} -> {mean_dice}, save new 'train_best.pth'")
+            best_train_dice = mean_dice 
+            save_checkpoint(model, optimizer, scheduler, epoch, best_train_dice, os.path.join(save_path, f"train_best.pth"))
+
+        logger.info(f"training epoch {epoch + 1}: best training_epoch_dice == {best_train_dice}")
+        logger.info(f"training epoch {epoch + 1}: average [FP:{mean_fp:.4f}, FN:{mean_fn:.4f}, IoU:{mean_iou:.4f}, Dice:{mean_dice:.4f}]")
+        logger.info(f"training epoch {epoch + 1}: time cost {time.time() - start} s")
+
+        logger.info(f"\n**************************************|| End Epoch {epoch+1} Training ||**************************************\n")
+        # validation
+        if (epoch + 1) % train_config['val_interval'] == 0:
+            logger.info(f"\n**************************************|| Start Epoch {epoch+1} Validating ||**************************************\n")
+            model.eval()
+            total_fp, total_fn, total_iou, total_dice = 0, 0, 0, 0
+            with torch.no_grad():
+                for step, batch_data in enumerate(val_loader):
+                    ct, pet, labels = batch_data["img_ct"].type(torch.FloatTensor).to(device),\
+                        batch_data["img"].type(torch.FloatTensor).to(device),\
+                        batch_data["seg"].type(torch.LongTensor).to(device)
+                    inputs = [ct, pet]
+                    inputs = torch.cat([inputs[i] for i in range(len(inputs)) if modal_index[i]], dim=1)
+                    output = model(inputs)
+                    labels[labels!=0] = 1
+                    string = f"validating {epoch+1}/{train_config['epochs']} {step}/{len(val_loader)}\n"
+                    metrics, deep_metric_string = show_deep_metrics(output, labels, train_config['show_deep_metric'])
+                    total_fp += metrics[0]
+                    total_fn += metrics[1]
+                    total_iou += metrics[2]
+                    total_dice += metrics[3]
+                    logger.info(string + deep_metric_string)
+                    del ct, pet, labels, output, batch_data
+            
+            mean_fp = total_fp / len(val_loader)
+            mean_fn = total_fn / len(val_loader)
+            mean_iou = total_iou / len(val_loader)
+            mean_dice = total_dice / len(val_loader)
+
+            if mean_dice >= best_val_dice:
+                logger.info(f"get new best dice {best_val_dice} -> {mean_dice}, save new 'val_best.pth'")
+                best_val_dice = mean_dice
+                save_checkpoint(model, optimizer, scheduler, epoch, best_val_dice, os.path.join(save_path, f"val_best.pth"))
+
+            logger.info(f"validating epoch {epoch + 1}: best validating_epoch_dice == {best_val_dice}")
+            logger.info(f"validating epoch {epoch + 1}: average [FP:{mean_fp:.4f}, FN:{mean_fn:.4f}, IoU:{mean_iou:.4f}, Dice:{mean_dice:.4f}]")
+            logger.info(f"validating epoch {epoch + 1}: time cost {time.time() - start} s")
+            writer.add_scalar("Validating FP", mean_fp, epoch)
+            writer.add_scalar('Validating FN', mean_fn, epoch)
+            writer.add_scalar('Validating IoU', mean_iou, epoch)
+            writer.add_scalar('Validating Dice', mean_dice, epoch)
+
+            logger.info(f"\n**************************************|| End Epoch {epoch+1} Validating ||**************************************\n")
+    writer.close()

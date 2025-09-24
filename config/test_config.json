@@ -1,0 +1,4 @@
+{
+    "result_metric_path": "./result/metric",
+    "result_pred_path": "./result/prediction"
+}

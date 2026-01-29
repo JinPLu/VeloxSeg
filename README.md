@@ -1,5 +1,18 @@
 # VeloxSeg: Johnson-Lindenstrauss Lemma Guided Network for Efficient 3D Medical Segmentation
 
+## News / Updates
+
+- **2026-01**: VeloxSeg is accepted by **ICLR 2026**!
+- **2026-01**: We are preparing an open-source **VeloxSeg v2** with **out-of-the-box nnUNet/nnUNetv2-style auto-configuration** (dataset conversion scripts + auto-generated plans + a `VeloxSegTrainer` inheriting from `nnUNetTrainer`). See the roadmap below.
+
+## Roadmap (VeloxSeg v2: nnUNet-style auto-configuration)
+
+- [ ] Release a `v2` branch with nnUNet/nnUNetv2-style auto-configuration (dataset fingerprinting, auto-generated `plans` files, reproducible seeds).
+- [ ] Provide dataset conversion helpers to nnUNet format (generate `dataset.json` + splits; validate spacing/orientation; optional modality handling).
+- [ ] Implement a `VeloxSegTrainer` that inherits from `nnUNetTrainer`, with VeloxSeg-specific architecture/loss defaults.
+- [ ] Provide one-command training examples (e.g., `nnUNetv2_plan_and_preprocess` + `nnUNetv2_train`).
+- [ ] Provide pre-trained weights, inference demos, and minimal docs for end-to-end usage.
+
 ## Overview
 
 <center>
@@ -118,6 +131,8 @@ python ./preprocess/normalization_MRI.py     # For MRI datasets
 ## Training
 
 ### Quick Start
+
+> Note: The current `main` branch uses VeloxSeg's JSON configs (`config/*.json`). The nnUNet/nnUNetv2-style auto-configuration and `nnUNetTrainer`-based training will be shipped in **VeloxSeg v2** (see Roadmap).
 
 ```bash
 # Train on AutoPET-II dataset

@@ -87,14 +87,25 @@ def load_model(model_name, config):
     else:
         raise ValueError("Invalid model name, now {}".format(model_name))
     
-def save_checkpoint(model, optimizer, scheduler, epoch, best_iou, filename='checkpoint.pth'):
-    state ={
-            "model": model.state_dict(),
-            "lr_sche": scheduler.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": epoch,
-            "best_iou": best_iou,
-        }
+def save_checkpoint(
+    model,
+    optimizer,
+    warmup_scheduler,
+    training_scheduler,
+    epoch,
+    best_train_dice,
+    best_val_dice,
+    filename='checkpoint.pth',
+):
+    state = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "warmup_scheduler": warmup_scheduler.state_dict(),
+        "training_scheduler": training_scheduler.state_dict(),
+        "epoch": epoch + 1,
+        "best_train_dice": best_train_dice,
+        "best_val_dice": best_val_dice,
+    }
     torch.save(state, filename)
 
 def checkpoint_DDP_to_SingleGPU(checkpoint):   
@@ -107,9 +118,14 @@ def checkpoint_DDP_to_SingleGPU(checkpoint):
         new_checkpoint[name] = v
     return new_checkpoint
 
-def load_checkpoint(model, filename, optimizer = None, scheduler = None, 
-                    warmup_scheduler = None, device = torch.device("cpu"),
-                    warmup_epoch = 0):
+def load_checkpoint(
+    model,
+    filename,
+    optimizer=None,
+    warmup_scheduler=None,
+    training_scheduler=None,
+    device=torch.device("cpu"),
+):
     checkpoint = torch.load(filename, map_location=device)
     model.load_state_dict(checkpoint_DDP_to_SingleGPU(checkpoint['model']))
     if optimizer is not None:
@@ -118,11 +134,15 @@ def load_checkpoint(model, filename, optimizer = None, scheduler = None,
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(device)
-        if (scheduler is not None) or (warmup_scheduler is not None):
-            if checkpoint['epoch'] < warmup_epoch:
-                scheduler = warmup_scheduler
-            else:
-                scheduler = scheduler
-            scheduler.load_state_dict(checkpoint['lr_sche'])
-        return model, optimizer, scheduler, checkpoint['epoch'], checkpoint['best_iou']
+        warmup_scheduler.load_state_dict(checkpoint['warmup_scheduler'])
+        training_scheduler.load_state_dict(checkpoint['training_scheduler'])
+        return (
+            model,
+            optimizer,
+            warmup_scheduler,
+            training_scheduler,
+            checkpoint['epoch'],
+            checkpoint['best_train_dice'],
+            checkpoint['best_val_dice'],
+        )
     return model

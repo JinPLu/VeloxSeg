@@ -12,10 +12,16 @@ seed_everything(seed = 12345)
 import pandas as pd
 from datetime import datetime
 import nibabel as nib
-from monai.inferers import sliding_window_inference
+from .inference_runtime import sliding_window_predict
 from .load_model import load_model, checkpoint_DDP_to_SingleGPU
 from .metric.metrics import metrics_tensor, get_hausdorff
 from .get_logger import get_logger
+from .runtime import (
+    get_torch_device,
+    set_cuda_device_if_available,
+    validate_file_groups,
+    validate_selected_modal,
+)
 import json
 import time
 
@@ -40,7 +46,7 @@ class Net(pytorch_lightning.LightningModule):
     
     def forward(self, x):
         outputs = self._model(x)
-        if type(outputs) == list:
+        if isinstance(outputs, (list, tuple)):
             outputs = outputs[0]
         return outputs
 
@@ -50,6 +56,10 @@ class Net(pytorch_lightning.LightningModule):
         images_CT = sorted(glob(self.train_config['dataset_path'][self.args.dataset_name]["ct_path"]))
         images_PET = sorted(glob(self.train_config['dataset_path'][self.args.dataset_name]["pet_path"]))
         labels = sorted(glob(self.train_config['dataset_path'][self.args.dataset_name]["label_path"]))
+        validate_file_groups(
+            self.args.dataset_name,
+            {"ct": images_CT, "pet": images_PET, "label": labels},
+        )
         names = [filename.split("_")[-1].replace('.nii.gz', '') for filename in labels]
        
         files = [{"img": img, "img_ct": ct, "label":label, "name":name} \
@@ -69,6 +79,11 @@ class Net(pytorch_lightning.LightningModule):
         if self.args.specific_sample is None:
             self.val_ds = Dataset(data=test_files, transform=transforms)
         else:
+            if self.args.specific_sample < 0 or self.args.specific_sample >= len(test_files):
+                raise IndexError(
+                    f"specific_sample index {self.args.specific_sample} is out "
+                    f"of range for {len(test_files)} samples"
+                )
             self.val_ds = Dataset(data=test_files[self.args.specific_sample:self.args.specific_sample+1], transform=transforms)
 
     def get_val_dataloader(self):
@@ -139,22 +154,20 @@ def numpy2tensor(x, device):
     return torch.tensor(x).to(device)
 
 def segment_PETCT(args, logger, model_config, train_config, test_config, checkpoint_path, pred_path, file_path):    
-    modal_index = [0, 0]
-    if args.select_modal is not None:
-        modal_index[int(args.select_modal)] = 1
-    else:
-        modal_index = [1 for _ in range(len(modal_index))]
+    modal_index = validate_selected_modal(
+        args.model_name,
+        model_config,
+        raw_modal_count=2,
+        select_modal=args.select_modal,
+    )
     
     net = Net(args, model_config, train_config, test_config)
     net.prepare_data()
 
     net.load_from_checkpoint(checkpoint_path)
 
-    if args.gpu_id == 'cpu':
-        device = torch.device('cpu')
-    else:
-        device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
-    torch.cuda.set_device(device)
+    device = get_torch_device(args.gpu_id)
+    set_cuda_device_if_available(device)
     
     net.to(device)
     net.eval()
@@ -169,7 +182,7 @@ def segment_PETCT(args, logger, model_config, train_config, test_config, checkpo
         logger.info(f"loaded checkpoint from {checkpoint_path}")
         logger.info(f"device: {device}")
         logger.info(f'length of dataset is {length}')
-    with torch.no_grad():
+    with torch.inference_mode():
         for i, data in enumerate(net.val_dataloader):
             ct, pet, label, name = data["img_ct"].type(torch.FloatTensor).to(device),\
                                    data["img"].type(torch.FloatTensor).to(device),\
@@ -198,12 +211,23 @@ def segment_PETCT(args, logger, model_config, train_config, test_config, checkpo
             inputs = torch.cat([inputs[i] for i in range(len(inputs)) if modal_index[i]], dim=1)
             
             if h * w * d > 500*500*1000:
-                out = sliding_window_inference(inputs, train_config['patch_size'][args.dataset_name], train_config['batch_size'], 
-                                               predictor=net, overlap=0.25,
-                                               sw_device=device, device='cpu')
+                out = sliding_window_predict(
+                    inputs,
+                    net,
+                    train_config['patch_size'][args.dataset_name],
+                    train_config['batch_size'],
+                    test_config,
+                    sw_device=device,
+                    device='cpu',
+                )
             else:
-                out = sliding_window_inference(inputs, train_config['patch_size'][args.dataset_name], train_config['batch_size'],
-                                               predictor=net, overlap=0.25)
+                out = sliding_window_predict(
+                    inputs,
+                    net,
+                    train_config['patch_size'][args.dataset_name],
+                    train_config['batch_size'],
+                    test_config,
+                )
             end = time.time()
             out = out.argmax(dim=1, keepdim=True)
             if args.specific_sample is None:
@@ -231,5 +255,3 @@ def segment_PETCT(args, logger, model_config, train_config, test_config, checkpo
         result = pd.DataFrame(result)
         result.columns = ["Time", "FP", "FN", "Recall", "Precision", "F1", "IoU", "Dice", "HD95", "Prediction", "Label"]
         result.to_csv(file_path, index=None)
-    
-    

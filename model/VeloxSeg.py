@@ -197,6 +197,8 @@ class VeloxSeg(nn.Module):
             # Segmentation Decoder (Student branch)
             # Generates predicted segmentation mask (Pred) with supervision signal (Lseg)
             pred, dec_pram = self.decoder(enc1, enc2, enc3, enc4)
+            if isinstance(pred, torch.Tensor):
+                pred = [pred]
             pred = [self.scale_prediction(p) for p in pred]
             
             # Reconstruction Decoders (Teacher branch)

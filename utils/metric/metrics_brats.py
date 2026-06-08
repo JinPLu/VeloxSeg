@@ -4,7 +4,7 @@ import copy
 from medpy.metric.binary import hd95
 
 def show_deep_metrics(outputs, labels, deep=True):
-    if not isinstance(outputs, list):
+    if not isinstance(outputs, (list, tuple)):
         outputs = [outputs]
     output = outputs[0].argmax(dim=1, keepdim=True)
     avg_dice, et_dice, tc_dice, wt_dice = cal_dice(labels, output)
@@ -25,11 +25,17 @@ def Dice(output, target, eps=1e-6):
     dice = torch.mean(x)
     return dice
 
-def HD95(gt, pred):
+def HD95(gt, pred, spacing=(1, 1, 1)):
     if (gt.max() == 0) or (pred.max() == 0):
-        return np.NaN
+        return np.nan
     else:
-        hausdorff_distance95 = hd95(pred.detach().cpu().numpy(), gt.detach().cpu().numpy())
+        pred = pred.squeeze(0).squeeze(0)
+        gt = gt.squeeze(0).squeeze(0)
+        hausdorff_distance95 = hd95(
+            pred.detach().cpu().numpy(),
+            gt.detach().cpu().numpy(),
+            voxelspacing=spacing,
+        )
         return float(hausdorff_distance95)
 
 def cal_dice(output, target):
@@ -39,9 +45,13 @@ def cal_dice(output, target):
 
     return float((et_dice+tc_dice+wt_dice)/3), float(et_dice), float(tc_dice), float(wt_dice)
 
-def cal_hd95(output, target):
-    et_hd95 = HD95((output == 3).float(), (target == 3).float())
-    tc_hd95 = HD95(((output == 1) | (output == 3)).float(), ((target == 1) | (target == 3)).float())
-    wt_hd95 = HD95((output != 0).float(), (target != 0).float())
+def cal_hd95(output, target, spacing=(1, 1, 1)):
+    et_hd95 = HD95((output == 3).float(), (target == 3).float(), spacing)
+    tc_hd95 = HD95(
+        ((output == 1) | (output == 3)).float(),
+        ((target == 1) | (target == 3)).float(),
+        spacing,
+    )
+    wt_hd95 = HD95((output != 0).float(), (target != 0).float(), spacing)
 
     return float((et_hd95+tc_hd95+wt_hd95)/3), float(et_hd95), float(tc_hd95), float(wt_hd95)

@@ -10,7 +10,7 @@ def show_deep_metrics(outputs, labels, deep=True):
         res: the metrics of the predicted and ground truth.
         string: the string of the metrics.
     """
-    if not isinstance(outputs, list):
+    if not isinstance(outputs, (list, tuple)):
         outputs = [outputs]
     output = outputs[0].argmax(dim=1, keepdim=True)
     fp, fn, _, _, _, iou, dice = metrics_tensor(labels, output)

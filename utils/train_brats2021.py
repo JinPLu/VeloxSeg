@@ -9,7 +9,7 @@ from .seed import seed_everything
 seed_everything(seed = 12345)
 
 from .optimizers.optimizers import build_optimizer
-from .optimizers.schedulers import build_scheduler
+from .optimizers.schedulers import build_scheduler, select_scheduler, step_scheduler
 
 import torch
 from glob import glob
@@ -30,12 +30,20 @@ from torch.utils.tensorboard import SummaryWriter
 from .load_model import load_model, save_checkpoint, load_checkpoint
 from utils.get_logger import get_logger
 from .loss import Loss
+from .runtime import (
+    get_torch_device,
+    image_label_modes,
+    rotation_range_from_degrees,
+    set_cuda_device_if_available,
+    validate_file_groups,
+    validate_selected_modal,
+)
 
 def run_train(args, train_config, model_config):
 
     torch.set_num_threads(args.num_workers)
-    device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
-    torch.cuda.set_device(device)
+    device = get_torch_device(args.gpu_id)
+    set_cuda_device_if_available(device)
 
     date = datetime.now().strftime("%m_%d")
     log_path = os.path.join(train_config['log_path'], "Train", args.model_name)
@@ -43,12 +51,13 @@ def run_train(args, train_config, model_config):
     
     model = load_model(args.model_name, model_config)
     
-    modal_index = [0, 0, 0, 0]
-    if args.select_modal is not None:
-        modal_index[int(args.select_modal)] = 1
-    else:
-        modal_index = [1 for _ in range(4)]
-    num_modal = len(model_config[args.model_name]['in_ch'])
+    num_modal = len(model_config[args.model_name].get('in_ch', [1, 1, 1, 1]))
+    modal_index = validate_selected_modal(
+        args.model_name,
+        model_config,
+        raw_modal_count=4,
+        select_modal=args.select_modal,
+    )
 
     optimizer = build_optimizer(
         model=model,
@@ -67,16 +76,25 @@ def run_train(args, train_config, model_config):
     
     
 
-    start_epoch, best_train_dice = 0, 0
-    scheduler = None
+    start_epoch, best_train_dice, best_val_dice = 0, 0, 0
     if args.checkpoint_path is not None:
-        model, optimizer, scheduler, start_epoch, best_train_dice = load_checkpoint(model, args.checkpoint_path, 
-                                                                                    optimizer, training_scheduler,
-                                                                                    warmup_scheduler, device, 
-                                                                                    warmup_epoch)
+        (
+            model,
+            optimizer,
+            warmup_scheduler,
+            training_scheduler,
+            start_epoch,
+            best_train_dice,
+            best_val_dice,
+        ) = load_checkpoint(
+            model,
+            args.checkpoint_path,
+            optimizer,
+            warmup_scheduler,
+            training_scheduler,
+            device,
+        )
         date = "_".join(args.checkpoint_path.split("/")[-2].split("_")[:2])
-    else:
-        scheduler = warmup_scheduler
     model.to(device)
     
     if args.model_index is not None:
@@ -98,6 +116,16 @@ def run_train(args, train_config, model_config):
     images_t1ce = sorted(glob(train_config['dataset_path'][args.dataset_name]["t1ce_path"]))
     images_t2 = sorted(glob(train_config['dataset_path'][args.dataset_name]["t2_path"]))
     labels = sorted(glob(train_config['dataset_path'][args.dataset_name]["label_path"]))
+    length = validate_file_groups(
+        args.dataset_name,
+        {
+            "flair": images_flair,
+            "t1": images_t1,
+            "t1ce": images_t1ce,
+            "t2": images_t2,
+            "label": labels,
+        },
+    )
 
     # set save path
     index = f"_{args.model_index}" if args.model_index is not None else ""
@@ -123,7 +151,8 @@ def run_train(args, train_config, model_config):
                         num_samples=2,
                     ),
                 RandRotated(keys=["flair", "t1", 't1ce', 't2', "seg"], 
-                        range_z=15, 
+                        range_z=rotation_range_from_degrees(15),
+                        mode=image_label_modes(4),
                         prob=0.5,
                     ),
                 
@@ -147,7 +176,6 @@ def run_train(args, train_config, model_config):
             ]
         )
 
-    length = len(labels)
     logger.info(f"The number of samples: {length}")
 
     # split dataset
@@ -186,12 +214,10 @@ def run_train(args, train_config, model_config):
 
     # training start
     iteration = 0
-    best_val_dice = 0
     step = 0
     
     for epoch in range(start_epoch, train_config['epochs']):
-        if epoch == warmup_epoch:
-            scheduler = training_scheduler
+        scheduler = select_scheduler(epoch, warmup_epoch, warmup_scheduler, training_scheduler)
         start = time.time()
         model.train()
         total_loss, total_avg_dice, total_et_dice, total_tc_dice, total_wt_dice = 0, 0, 0, 0, 0
@@ -203,7 +229,7 @@ def run_train(args, train_config, model_config):
                                     batch_data["t1ce"].type(torch.FloatTensor).to(device),\
                                     batch_data["t2"].type(torch.FloatTensor).to(device),\
                                     batch_data["seg"].type(torch.LongTensor).to(device)
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             inputs = [flair, t1, t1ce, t2]
             inputs = torch.cat([inputs[i] for i in range(len(inputs)) if modal_index[i]], dim=1)
             output = model(inputs)
@@ -233,7 +259,11 @@ def run_train(args, train_config, model_config):
             total_tc_dice += metrics[2]
             total_wt_dice += metrics[3]
 
-        scheduler.step()
+        if epoch < warmup_epoch:
+            step_scheduler(scheduler, "warmup_scheduler")
+        elif train_config["train_scheduler"]["scheduler_type"] != "reducelronplateau":
+            step_scheduler(scheduler, train_config["train_scheduler"]["scheduler_type"])
+
         mean_loss = total_loss / len(train_loader)
         mean_avg_dice = total_avg_dice / len(train_loader)
         mean_et_dice = total_et_dice / len(train_loader)
@@ -241,12 +271,12 @@ def run_train(args, train_config, model_config):
         mean_wt_dice = total_wt_dice / len(train_loader)
 
         if epoch % train_config['save_model_interval'] == 0:
-                save_checkpoint(model, optimizer, scheduler, epoch, best_train_dice, os.path.join(save_path, f"{epoch}.pth"))
+                save_checkpoint(model, optimizer, warmup_scheduler, training_scheduler, epoch, best_train_dice, best_val_dice, os.path.join(save_path, f"{epoch}.pth"))
 
         if mean_avg_dice >= best_train_dice:
             logger.info(f"get new best dice {best_train_dice} -> {mean_avg_dice}, save new 'train_best.pth'")
             best_train_dice = mean_avg_dice 
-            save_checkpoint(model, optimizer, scheduler, epoch, best_train_dice, os.path.join(save_path, f"train_best.pth"))
+            save_checkpoint(model, optimizer, warmup_scheduler, training_scheduler, epoch, best_train_dice, best_val_dice, os.path.join(save_path, f"train_best.pth"))
 
         logger.info(f"training epoch {epoch + 1}: best training_epoch_dice == {best_train_dice}")
         logger.info(f"training epoch {epoch + 1}: average [Avg:{mean_avg_dice:.4f}, ET:{mean_et_dice:.4f}, TC:{mean_tc_dice:.4f}, WT:{mean_wt_dice:.4f}]")
@@ -281,10 +311,16 @@ def run_train(args, train_config, model_config):
             mean_tc_dice = total_tc_dice / len(val_loader)
             mean_wt_dice = total_wt_dice / len(val_loader)
 
+            if (
+                epoch >= warmup_epoch
+                and train_config["train_scheduler"]["scheduler_type"] == "reducelronplateau"
+            ):
+                step_scheduler(scheduler, "reducelronplateau", mean_avg_dice)
+
             if mean_avg_dice >= best_val_dice:
                 logger.info(f"get new best dice {best_val_dice} -> {mean_avg_dice}, save new 'val_best.pth'")
                 best_val_dice = mean_avg_dice
-                save_checkpoint(model, optimizer, scheduler, epoch, best_val_dice, os.path.join(save_path, f"val_best.pth"))
+                save_checkpoint(model, optimizer, warmup_scheduler, training_scheduler, epoch, best_train_dice, best_val_dice, os.path.join(save_path, f"val_best.pth"))
 
             logger.info(f"validating epoch {epoch + 1}: best validating_epoch_dice == {best_val_dice}")
             logger.info(f"validating epoch {epoch + 1}: average [Avg:{mean_avg_dice:.4f}, ET:{mean_et_dice:.4f}, TC:{mean_tc_dice:.4f}, WT:{mean_wt_dice:.4f}]")

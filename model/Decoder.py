@@ -175,5 +175,5 @@ class Seg_Decoder(nn.Module):
                 
                 return [out, out2, out3, out4], get_pram_matrix(up1)
             else:
-                return out, up1
+                return [out], get_pram_matrix(up1)
         return out

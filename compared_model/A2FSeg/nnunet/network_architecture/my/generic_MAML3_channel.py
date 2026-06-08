@@ -858,7 +858,7 @@ class Generic_MAML_multi3_channel(SegmentationNetwork):
         
         
 
-    def forward(self, x, subset_idx_list=[14], num = 2):
+    def forward(self, x, subset_idx_list=[14], num = None):
         # print(x.size(), subset_idx_list, num)
         # num = 2
         b, c, h, w, d = x.size()
@@ -923,6 +923,12 @@ class Generic_MAML_multi3_channel(SegmentationNetwork):
 
         attention_maps = self.softmax(torch.stack(attention_maps, 1))
 
+
+        active_modalities = len(modality_features) - 1
+        if num is None:
+            num = active_modalities
+        if num <= 0 or num > active_modalities:
+            raise ValueError(f"num must be in [1, {active_modalities}], got {num}")
 
         output = attention_maps[:,0] * modality_features[0]
         for i in range(1, num):

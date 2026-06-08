@@ -1,4 +1,7 @@
 {
     "result_metric_path": "./result/metric",
-    "result_pred_path": "./result/prediction"
+    "result_pred_path": "./result/prediction",
+    "sliding_window": {
+        "overlap": 0.25
+    }
 }

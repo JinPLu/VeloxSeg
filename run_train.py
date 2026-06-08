@@ -1,9 +1,11 @@
 import json
 import argparse
 
+SUPPORTED_DATASETS = ("AutoPETII", "Hecktor2022", "BraTS2021")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_name', type=str, required=True, help='dataset name')
+    parser.add_argument('--dataset_name', type=str, required=True, choices=SUPPORTED_DATASETS, help='dataset name')
     parser.add_argument('--model_name', type=str, required=True, help='model name')
     parser.add_argument('--train_config', type=str, required=True, help='train_config path')
     parser.add_argument('--model_config', type=str, required=True, help='model_config path')
@@ -12,7 +14,7 @@ if __name__ == '__main__':
     # parser.add_argument("--local-rank", "--local_rank", type=int)
     parser.add_argument('--num_workers', type=int, default=8, help='number of workers for data loading')
     parser.add_argument('--model_index', type=str, default=None, help='Markdown index of the model')
-    parser.add_argument('--select_modal', type=str, default=None, )
+    parser.add_argument('--select_modal', type=int, default=None)
     args = parser.parse_args()
     with open(args.train_config, 'r', encoding='utf-8') as f:
         train_config = json.load(f)

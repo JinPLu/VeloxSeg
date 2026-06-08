@@ -46,7 +46,7 @@ def training_lr_scheduler(config, optimizer):
     elif scheduler_type == "poly_lr":
         scheduler = optim.lr_scheduler.PolynomialLR(
             optimizer=optimizer,
-            total_iters=5,
+            total_iters=config["epochs"] - config["warmup_scheduler"]["warmup_epochs"],
             power=config["train_scheduler"]["scheduler_args"]["power"],
             last_epoch=-1,
         )
@@ -76,3 +76,16 @@ def build_scheduler(
         return scheduler
     else:
         raise ValueError("Invalid Input -- Check scheduler_type")
+
+
+def select_scheduler(epoch, warmup_epoch, warmup_scheduler, training_scheduler):
+    if epoch < warmup_epoch:
+        return warmup_scheduler
+    return training_scheduler
+
+
+def step_scheduler(scheduler, scheduler_type, validation_metric=None):
+    if scheduler_type == "reducelronplateau":
+        scheduler.step(validation_metric)
+    else:
+        scheduler.step()

@@ -12,13 +12,19 @@ np.random.seed(seed)
 torch.manual_seed(seed)
 
 import pandas as pd
-from torch.nn import functional as F
 from datetime import datetime
 import nibabel as nib
-from monai.inferers import sliding_window_inference
+from .inference_runtime import sliding_window_predict
 from .load_model import load_model, checkpoint_DDP_to_SingleGPU
 from .metric.metrics_brats import cal_dice, cal_hd95
 from .get_logger import get_logger
+from .runtime import (
+    get_torch_device,
+    select_modal_items,
+    set_cuda_device_if_available,
+    validate_file_groups,
+    validate_selected_modal,
+)
 import json
 
 import pytorch_lightning
@@ -42,7 +48,7 @@ class Net(pytorch_lightning.LightningModule):
     
     def forward(self, x):
         outputs = self._model(x)
-        if type(outputs) == list:
+        if isinstance(outputs, (list, tuple)):
             outputs = outputs[0]
         return outputs
 
@@ -54,6 +60,16 @@ class Net(pytorch_lightning.LightningModule):
         images_t1ce = sorted(glob(self.train_config['dataset_path'][self.args.dataset_name]["t1ce_path"]))
         images_t2 = sorted(glob(self.train_config['dataset_path'][self.args.dataset_name]["t2_path"]))
         labels = sorted(glob(self.train_config['dataset_path'][self.args.dataset_name]["label_path"]))
+        validate_file_groups(
+            self.args.dataset_name,
+            {
+                "flair": images_flair,
+                "t1": images_t1,
+                "t1ce": images_t1ce,
+                "t2": images_t2,
+                "label": labels,
+            },
+        )
         names = [filename.split("/")[-2] for filename in labels]
 
         files = [{"flair": flair, "t1": t1,"t1ce": t1ce, "t2":t2, "seg":seg, "name":name} \
@@ -72,6 +88,11 @@ class Net(pytorch_lightning.LightningModule):
         if self.args.specific_sample is None:
             self.val_ds = Dataset(data=test_files, transform=transforms)
         else:
+            if self.args.specific_sample < 0 or self.args.specific_sample >= len(test_files):
+                raise IndexError(
+                    f"specific_sample index {self.args.specific_sample} is out "
+                    f"of range for {len(test_files)} samples"
+                )
             self.val_ds = Dataset(data=test_files[self.args.specific_sample:self.args.specific_sample+1], transform=transforms)
 
     def get_val_dataloader(self):
@@ -138,6 +159,12 @@ def numpy2tensor(x, device):
     return torch.tensor(x).to(device)
 
 def segment_MRI(args, logger, model_config, train_config, test_config, checkpoint_path, pred_path, file_path):
+    modal_index = validate_selected_modal(
+        args.model_name,
+        model_config,
+        raw_modal_count=4,
+        select_modal=args.select_modal,
+    )
     logger.info(f"model_config: {args.model_config}")
     logger.info(f"pred_path: {pred_path}")
     logger.info(f"metric_file_path: {file_path}")
@@ -148,11 +175,8 @@ def segment_MRI(args, logger, model_config, train_config, test_config, checkpoin
     net.load_from_checkpoint(checkpoint_path)
     logger.info(f"loaded checkpoint from {checkpoint_path}")
 
-    if args.gpu_id == 'cpu':
-        device = torch.device('cpu')
-    else:
-        device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
-    torch.cuda.set_device(device)
+    device = get_torch_device(args.gpu_id)
+    set_cuda_device_if_available(device)
 
     logger.info(f"device: {device}")
     
@@ -163,7 +187,7 @@ def segment_MRI(args, logger, model_config, train_config, test_config, checkpoin
     out = None
     result = []
     logger.info(f'length of dataset is {length}')
-    with torch.no_grad():
+    with torch.inference_mode():
         for i, data in enumerate(net.val_dataloader):
             flair, t1, t1ce, t2, label, name = data["flair"].type(torch.FloatTensor).to(device),\
                                     data["t1"].type(torch.FloatTensor).to(device),\
@@ -171,14 +195,23 @@ def segment_MRI(args, logger, model_config, train_config, test_config, checkpoin
                                     data["t2"].type(torch.FloatTensor).to(device),\
                                     data["seg"].type(torch.LongTensor).to(device),\
                                     data['name']
-            inputs = torch.cat([flair, t1, t1ce, t2], dim=1)
+            inputs = torch.cat(
+                select_modal_items([flair, t1, t1ce, t2], modal_index),
+                dim=1,
+            )
             
-            out = sliding_window_inference(inputs, train_config['patch_size'][args.dataset_name], train_config['batch_size'],
-                                            predictor=net, overlap=0.25)
+            out = sliding_window_predict(
+                inputs,
+                net,
+                train_config['patch_size'][args.dataset_name],
+                train_config['batch_size'],
+                test_config,
+            )
             out = out.argmax(dim=1, keepdim=True)
             avg_dice, et_dice, tc_dice, wt_dice = cal_dice(out, label)
             if args.use_hd95 == 1:
-                avg_hd95, et_hd95, tc_hd95, wt_hd95 = cal_hd95(out, label)
+                spacing = label.meta['pixdim'][0, 1:4].tolist()
+                avg_hd95, et_hd95, tc_hd95, wt_hd95 = cal_hd95(out, label, spacing)
             else:
                 avg_hd95, et_hd95, tc_hd95, wt_hd95 = -1, -1, -1, -1
             logger.info(f"{name[0]} {i}/{length} [avg_dice:{avg_dice:4f}, et_dice:{et_dice:4f}, tc_dice:{tc_dice:4f}, wt_dice:{wt_dice:4f}, pix:{(out>0).sum()}/{(label>0).sum()}]")
@@ -198,16 +231,16 @@ def segment_MRI(args, logger, model_config, train_config, test_config, checkpoin
                 
                 if not os.path.exists(os.path.join(pred_path, f"flair.nii.gz")):
                     
-                    Image = nib.Nifti1Image(flair.cpu().numpy(), data['flair'].meta['affine'][0])
+                    Image = nib.Nifti1Image(flair[0][0].cpu().numpy(), data['flair'].meta['affine'][0])
                     nib.save(Image, os.path.join(pred_path, f"flair.nii.gz"))
                     
-                    Image = nib.Nifti1Image(t1.cpu().numpy(), data['t1'].meta['affine'][0])
+                    Image = nib.Nifti1Image(t1[0][0].cpu().numpy(), data['t1'].meta['affine'][0])
                     nib.save(Image, os.path.join(pred_path, f"t1.nii.gz"))
                     
-                    Image = nib.Nifti1Image(t1ce.cpu().numpy(), data['t1ce'].meta['affine'][0])
+                    Image = nib.Nifti1Image(t1ce[0][0].cpu().numpy(), data['t1ce'].meta['affine'][0])
                     nib.save(Image, os.path.join(pred_path, f"t1ce.nii.gz"))
                     
-                    Image = nib.Nifti1Image(t2.cpu().numpy(), data['t2'].meta['affine'][0])
+                    Image = nib.Nifti1Image(t2[0][0].cpu().numpy(), data['t2'].meta['affine'][0])
                     nib.save(Image, os.path.join(pred_path, f"t2.nii.gz"))
                     
                     Image = nib.Nifti1Image((label == 3).cpu().numpy().astype(np.uint8), data['seg'].meta['affine'][0])
@@ -220,5 +253,3 @@ def segment_MRI(args, logger, model_config, train_config, test_config, checkpoin
     result = pd.DataFrame(result)
     result.columns = ["Avg_Dice", "ET_Dice", "TC_Dice", "WT_Dice", "Avg_HD95", "ET_HD95", "TC_HD95", "WT_HD95", "Prediction", "Label"]
     result.to_csv(file_path, index=None)
-    
-    

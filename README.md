@@ -79,8 +79,8 @@ VeloxSeg/
 ├── run_test.py              # Testing script
 ├── train.sh                 # Training commands
 ├── test.sh                  # Testing commands
-├── Overview.pdf             # Detailed framework overview and design principles
-└── requirement.txt          # Python dependencies
+├── fig/                     # Method and overview figures
+└── requirements.txt         # Python dependencies
 ```
 
 ## Installation
@@ -89,7 +89,7 @@ VeloxSeg/
 
 - Ubuntu 22.04.4 LTS
 - Python 3.10.16
-- CUDA 12.2
+- CUDA-capable runtime. The original environment used CUDA 12.2; install the PyTorch wheel that matches your driver/runtime.
 - NVIDIA GeForce RTX 3090 (or compatible GPU)
 
 ### Setup
@@ -103,17 +103,20 @@ conda activate VeloxSeg
 pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu118
 
 # Install other dependencies
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
+
+`requirement.txt` is kept as a legacy alias for `requirements.txt`.
 
 ## Datasets
 
-The framework supports multiple medical image segmentation datasets:
+The public training and inference entrypoints currently support:
 
 - **AutoPET-II**: Automated Lesion Segmentation in PET/CT Challenge
 - **Hecktor2022**: MICCAI Hecktor 2022 Challenge (Head & Neck)
 - **BraTS2021**: RSNA-ASNR-MICCAI Brain Tumor Segmentation Challenge 2021
-- **MSD2019**: Medical Segmentation Decathlon Task-01
+
+`config/train_config_bs4.json` also contains MSD2019 path placeholders, but MSD2019 is not wired into `run_train.py` or `run_test.py` yet.
 
 ## Data Preprocessing
 
@@ -137,9 +140,14 @@ python ./preprocess/normalization_MRI.py     # For MRI datasets
 ```bash
 # Train on AutoPET-II dataset
 sh train.sh
+
+# Or choose another supported dataset
+DATASET_NAME=BraTS2021 GPU_ID=0 sh train.sh
 ```
 
 ### Custom Training
+
+`config/train_config_bs4.json` is the historical default config filename. The effective batch size is read from the JSON file.
 
 ```bash
 python run_train.py \
@@ -162,6 +170,9 @@ python run_train.py \
 ```bash
 # Run inference and evaluation
 sh test.sh
+
+# Override checkpoint date or dataset when needed
+TRAIN_DATE=09_12 DATASET_NAME=Hecktor2022 sh test.sh
 ```
 
 ### Custom Inference

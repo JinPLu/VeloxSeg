@@ -1,0 +1,44 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Notebook checkpoints and local notebooks
+.ipynb_checkpoints/
+/utils.ipynb
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# Local environments
+.env
+.venv/
+venv/
+env/
+
+# Project data, outputs, and checkpoints
+datasets/
+logs/
+save/
+result/
+results/
+Experiments/
+*.pth
+*.pt
+*.ckpt
+*.nii
+*.nii.gz
+*.npy
+*.npz
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml

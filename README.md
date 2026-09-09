@@ -2,440 +2,89 @@
 
 ## News / Updates
 
-- **2026-09**: Corrected the open-source loss weighting and learning-rate schedule to align with the paper configurations.
+- **2026-09**: The **nnVeloxSeg** branch adds native nnU-Net v2 training and automatic S/B/L configurations for AutoPET-II, BraTS2021 and Hecktor2022.
 - **2026-01**: VeloxSeg is accepted by **ICLR 2026**!
-- **2026-09**: The `v2` branch provides S/B/L auto-planning, native nnUNet training and six-experiment launch scripts. See the design, measured inference and commands below.
-
-## VeloxSeg v2: S/B/L with nnUNet
-
-This branch provides a native `VeloxSegPlanner` and `nnVeloxSegTrainer`, using
-nnUNetv2 2.6.2 for preprocessing, augmentation, folds, checkpoints, sliding-window
-prediction and evaluation. The public VeloxSeg model and auxiliary objective are
-shared with the standalone entrypoints. Historical checkpoints are incompatible
-with the new stage-based architecture. The standalone examples below describe
-reference configurations, not this automatic family.
-
-### Design and training protocol
-
-S/B/L start at **8/16/24 channels**, capped at 160/320/480. B preserves the
-established base16 reference; L uses 1.5× width. All tiers use one JLC/PWA block per
-stage, expansion2 and dropout0. Stage count, per-axis strides and attention windows
-follow dataset geometry. The first two nnUNet pooling transitions form a compact
-stem; neither 96³ nor a fixed number of stages is imposed.
-
-The planner fixes **training batch8**, then shrinks one shared patch until the
-largest family member's tensor estimate fits **22 GiB within a 24 GiB target**.
-The remaining 2 GiB covers observed estimation error and CUDA/runtime allocations. S/B/L use that same
-geometry for a controlled width comparison. Batch4 is a separate planning
-comparison, not one of these six experiments. This is a calibrated heuristic,
-not an accuracy-selected optimum; the training-memory proxy was calibrated at B
-and does not guarantee a device-memory bound. The original AutoPET L candidate
-failed its first real-data backward pass on RTX3090; the corrected geometry and
-validation-count fix are described below.
-
-| Dataset | Tier / native configuration | Shared patch | Stage channels | Total / inference-path parameters | Batch1 counted GFLOPs | Estimated training reserved GiB |
-|---|---|---|---|---:|---:|---:|
-| BraTS2021 | S / `3d_fullres_S` | 160×192×160 | 8/16/32/64 | 1.047M / 0.825M | 14.548 | 8.286 |
-| BraTS2021 | B / `3d_fullres_B` | 160×192×160 | 16/32/64/128 | 2.608M / 2.071M | 36.191 | 9.758 |
-| BraTS2021 | L / `3d_fullres_L` | 160×192×160 | 24/48/96/192 | 4.246M / 3.371M | 49.002 | 10.613 |
-| AutoPET-II | S / `3d_fullres_S` | 160×224×224 | 8/16/32/64 | 1.243M / 0.884M | 24.171 | 14.950 |
-| AutoPET-II | B / `3d_fullres_B` | 160×224×224 | 16/32/64/128 | 3.152M / 2.283M | 44.605 | 17.805 |
-| AutoPET-II | L / `3d_fullres_L` | 160×224×224 | 24/48/96/192 | 5.418M / 3.947M | 65.217 | 20.677 |
-
-All six use fold4, seed12345, 1000 epochs ×250 training updates, 50 online
-validation batches/epoch, foreground oversampling0.33, AdamW (LR1e-3,
-weight decay0.01), cosine decay to6e-6 and sample-wise Dice. CUDA training uses
-FP16 autocast/GradScaler, with FP32 patch embedding, Gram construction, loss
-reductions and online Dice voxel counts.
-The objective combines native-scale segmentation heads (normalized 2^-level
-weights), reconstruction MSE averaged over modalities (weight0.5), and Gram
-transfer summed over modality teachers and averaged over batch (weight2).
-Increasing batch does not automatically scale LR or equalize sample exposure.
-
-### Measured inference and its limits
-
-**Earlier implementation:** these timings precede the FP32 patch-embedding
-correction. AutoPET additionally used192×256×256 and five stages; current plans
-use160×224×224 and four stages. BraTS geometry is unchanged, but its embedding
-precision changed too. These are historical timings, not new-model benchmarks.
-
-RTX3090, PyTorch2.6/cu124, FP16, batch1, random weights and synthetic inputs.
-Forward/reverse candidate orders each used 5 warmups +10 single-patch calls,
-and 1 warmup +3 whole-volume predictions. Ranges span the two medians.
-Whole-volume prediction used step0.5 and Gaussian fusion, without TTA or fold
-ensemble. It includes predictor transfers/accumulation, but excludes preprocessing
-and export. All outputs were finite. Resident weights include inactive training
-heads; the inference path omits reconstruction and auxiliary objectives.
-
-| Dataset / tier | Single patch (ms) | Patch allocated / reserved GiB | Whole volume (s) | Whole-volume allocated GiB |
-|---|---:|---:|---:|---:|
-| BraTS / S | 15.3 | 0.169 / 0.281 | 0.064–0.093 | 0.288 |
-| BraTS / B | 17.4–20.9 | 0.184 / 0.309 | 0.064–0.078 | 0.301 |
-| BraTS / L | 22.6–22.8 | 0.250 / 0.371 | 0.081–0.097 | 0.365 |
-| AutoPET / S | 31.2–39.7 | 0.240 / 0.344 | 0.858–0.942 | 1.271 |
-| AutoPET / B | 31.1–32.6 | 0.292 / 0.408 | 0.870–0.921 | 1.324 |
-| AutoPET / L | 34.5–45.0 | 0.351 / 0.506 | 1.040–1.188 | 1.384 |
-
-AutoPET's 326×400×400 volume uses27 windows; BraTS's 140×171×136 volume is
-padded to one window. **Whole-volume inference also uses batch1**; batch4/8 refer
-to training planning. S lowers parameters/memory but has no established AutoPET
-speed advantage over B. FLOPs alone do not rank latency.
-
-The earlier base16 comparison showed a useful trade-off: whole-volume inference
-fell from9.766s for the explicit historical96³ reference to0.480s (batch4-planned
-224×320×320) or0.704s (batch8-planned224×256×256), while equal-batch8 training
-updates rose from0.171s to0.951s. Those are different geometries from the shared
-S/B/L table. Larger context reduced tile count, but did not mean faster updates,
-faster patches, fewer parameters or proven accuracy gains. Convergence and
-real-case accuracy remain unverified. Any further memory adjustment must preserve
-a shared geometry and batch for all tiers and report the changed protocol.
-
-### RTX3090 training correction (2026-09-09–10)
-
-The original AutoPET L192×256×256/batch8 configuration failed on the first
-backward allocation. A separate RTX3090 reproduction reached22.888GiB allocated
-and23.365GiB reserved before failing to allocate a cuBLAS handle. The next shared
-candidate192×224×256 reserved23.090GiB, exceeding its22.071GiB estimate and
-leaving too little runtime margin. The planner now reserves2GiB out of24GiB;
-its ordinary geometry search selects **160×224×224 for all AutoPET tiers**.
-BraTS remains160×192×160. AutoPET now has four stages, so parameters/checkpoint
-shapes change along with patch size. Preserve earlier failed-run outputs and use
-an empty results directory; do not resume their checkpoints with these plans.
-
-Real-data validation also exposed FP16 voxel-count overflow in the class-label
-online Dice path. Predicted one-hot masks now use FP32, matching nnUNet's native
-trainer. On RTX3090, a 524,288-voxel all-foreground check reproduced the old
-infinite count; the fixed native validation returned exactly 524,288 true positives
-and zero false positives/negatives. This changes online metrics/checkpoint
-selection, not the segmentation loss or region-label semantics.
-
-BraTS S also exposed an FP16 convolution-bias gradient overflow in
-`encoder.encoder_attn.patch_embeds.0.proj.bias`: twenty initial calls produced no
-optimizer update. With the same real batch and initialized weights, scale 0.0625
-still overflowed this parameter; substituting native LayerNorm did not fix it.
-Executing only patch embedding in FP32 yielded finite gradients even at scale 128
-(the bias gradient magnitude reached 7.197e8, beyond FP16's range). The remaining
-backbone retains autocast. This precision change preserves parameters, layer topology, loss weights and
-the production GradScaler initial value 65536.
-
-All six corrected configurations passed full-patch, batch8 real-data checks:
-20 native training calls using three augmented batches, online validation,
-return to training, fresh-process checkpoint resume with three effective updates,
-and one real whole-case prediction. Losses, effective gradients, validation counts
-and predictions were finite. See the [GPU results and exact scope](nnunet/README.md#full-patch-rtx3090-checks).
-All six also passed with the production CLI cuDNN benchmark setting. These are
-short runtime checks;1000-epoch convergence remains unverified.
-
-### Six experiments
-
-Use a dedicated Python3.11 environment on a Linux task with **six visible GPUs**
-(or eight allocated GPUs, of which the script uses the first six). Install:
-
-```bash
-python -m pip install -r nnunet/requirements.txt
-python nnunet/install.py
-export nnUNet_raw=/your/data/nnUNet_raw
-export nnUNet_preprocessed=/your/experiment/nnUNet_preprocessed
-export nnUNet_results=/your/experiment/results
-export nnUNet_compile=false
-```
-
-Prepare the raw datasets in nnUNet format with the bundled dataset metadata and
-folds under `nnunet/config/`. IDs137/221 denote BraTS2021/AutoPET-II here. The
-bundled fold4 uses800/200 BraTS and648/162 AutoPET training/validation cases;
-held-out test sets have251/204 cases. Channel grouping is `[4]` for BraTS and
-`[1,1]` for PET/CT. Follow these names/order/labels when reusing the bundled
-metadata. If your cases differ, generate your own fingerprint and splits.
-
-```bash
-# Generate all tiers; preprocess once per dataset because S/B/L share the cache.
-nnUNetv2_plan_and_preprocess -d 137 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
-nnUNetv2_plan_and_preprocess -d 221 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
-# Use the supplied folds for the matching released case identifiers.
-cp nnunet/config/Dataset137_BraTS2021/splits_final.json "$nnUNet_preprocessed/Dataset137_BraTS2021/"
-cp nnunet/config/Dataset221_AutoPETII_2023/splits_final.json "$nnUNet_preprocessed/Dataset221_AutoPETII_2023/"
-# Run six concurrent single-GPU experiments.
-bash nnunet/scripts/run_six.sh
-```
-
-[run_six.sh](nnunet/scripts/run_six.sh) respects `CUDA_VISIBLE_DEVICES` from the
-platform, assigning the first three GPUs to BraTS S/B/L and the next three to
-AutoPET S/B/L. Each uses the standard native training lifecycle, including final
-full-case validation, then predicts `imagesTs` with `checkpoint_final.pth` and
-runs folder evaluation against `labelsTs`. Standard prediction uses Gaussian
-fusion, step0.5 and training mirror axes (TTA), so its runtime differs from the
-no-TTA benchmark. No model ensemble or unconditional largest-lesion removal is
-added. This launcher is a foreground platform command; it does not submit a task.
-
-Outputs are separated by dataset/configuration under `nnUNet_results`:
-`<dataset>/nnVeloxSegTrainer__nnVeloxSegPlans__3d_fullres_<S|B|L>/fold_4/`.
-Each contains `stdout.log`, native checkpoints/logs, `prediction/` and
-`test_summary.json`. Use a new results directory for a new experiment. To resume
-all six interrupted runs with checkpoints present, append `--c`; to resume one:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 bash nnunet/scripts/run_experiment.sh 221 L --c
-```
-
-See [detailed rules, loss semantics and validation evidence](nnunet/README.md)
-and the [generated plans](nnunet/config/). Dataset conversion helpers and
-trained v2 weights are not yet provided.
-
-### Hecktor2022: five experiments
-
-Hecktor uses dataset ID **990** (`Dataset990_Hecktor_2022`). Its bundled
-metadata describes binary tumor segmentation, PET then CT, modality groups
-`[1,1]`, 418 training-pool cases and 106 held-out test cases. The supplied fold4
-uses 335 training / 83 validation cases. S/B/L use the same native protocol
-described above, with these automatically generated configurations:
-
-| Experiment | Patch in the input tensor's spatial order | Effective training batch | Epochs |
-|---|---|---:|---:|
-| Original standalone reference | 128×128×64 | 4 patches (2 cases ×2 crops) | 300 |
-| Fixed nnUNet reference | 64×128×128 | 4 patches | 1000 ×250 updates |
-| nnUNet auto S | 160×256×256 | 8 patches | 1000 ×250 updates |
-| nnUNet auto B | 160×256×256 | 8 patches | 1000 ×250 updates |
-| nnUNet auto L | 160×256×256 | 8 patches | 1000 ×250 updates |
-
-The auto tiers have five stages, starting at 8/16/24 channels and ending at
-128/256/384. Total parameters are 3,525,167 / 9,144,326 / 15,518,173;
-estimated training reserved memory is 13.515 / 17.217 / 20.947 GiB
-with the FP32 input-embedding correction. Geometry and batch are unchanged.
-These estimates do not establish convergence or segmentation accuracy.
-
-To prepare and run the three auto configurations in the dedicated v2 environment:
-
-```bash
-nnUNetv2_plan_and_preprocess -d 990 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
-cp nnunet/config/Dataset990_Hecktor_2022/splits_final.json "$nnUNet_preprocessed/Dataset990_Hecktor_2022/"
-CUDA_VISIBLE_DEVICES=0 bash nnunet/scripts/run_experiment.sh 990 S &
-CUDA_VISIBLE_DEVICES=1 bash nnunet/scripts/run_experiment.sh 990 B &
-CUDA_VISIBLE_DEVICES=2 bash nnunet/scripts/run_experiment.sh 990 L &
-wait
-```
-
-The two references use their existing pre-v2 code snapshots and separate Python
-environments; the stage-based v2 model must not replace the original standalone
-model or fixed nnUNet network. The standalone reference uses the existing
-normalized 524-case dataset, sorted 60/20/20 (314/105/105), CT then PET, binary
-nonzero labels, LR2.5e-4, 10-epoch warmup and the original cosine-restart schedule.
-The fixed nnUNet reference preserves batch Dice, FP32 forward/loss computation,
-LR1e-3 and its original auxiliary loss reductions. Auto S/B/L use sample-wise
-Dice, FP16 training and the v2 objective described above. All references use
-their explicit dropout0.1 configuration.
-
-Thus the five runs compare complete configurations: splits, preprocessing,
-axis order, model architecture, loss reductions and update budgets differ.
-They are not a single-variable framework ablation. The same case identifiers,
-channel order and binary labels must be used when reusing the bundled metadata.
 
 ## Overview
 
-<center>
-    <img style="border-radius: 0.3125em;
-    box-shadow: 0 2px 4px 0 rgba(34,36,38,.12),0 2px 10px 0 rgba(34,36,38,.08);" 
-    src="fig/Overview.png">
-    <br>
-    <div style="color:orange; border-bottom: 1px solid #d9d9d9;
-    display: inline-block;
-    color: #999;
-    padding: 2px;">Overview of VeloxSeg. VeloxSeg employs an encoder-decoder architecture with Paired Window Attention (PWA) and Johnson-Lindenstrauss lemma-guided convolution (JLC) on the left, using 1x1 convolution as modal mixer. GC: group convolution; GA: grouped attention.</div>
-</center>
-VeloxSeg is a lightweight multimodal medical image segmentation framework that addresses the fundamental "efficiency / robustness conflict" in 3D medical image segmentation.
+VeloxSeg is a lightweight multimodal 3D medical image segmentation network.
+It combines Johnson-Lindenstrauss guided convolution (JLC), Paired Window
+Attention (PWA), and reconstruction-based knowledge transfer.
 
-## Architecture
+![VeloxSeg overview](fig/Overview.png)
 
-The framework consists of three main components:
+This branch integrates VeloxSeg with nnU-Net v2 preprocessing, augmentation,
+training, checkpoints and sliding-window inference. S/B/L start at **8/16/24
+channels** and share one automatically planned patch per dataset. The default
+training batch is **8**, with a **24 GiB** planning target.
 
-<center>
-    <img style="border-radius: 0.3125em;
-    box-shadow: 0 2px 4px 0 rgba(34,36,38,.12),0 2px 10px 0 rgba(34,36,38,.08);" 
-    src="fig/Method.png">
-    <br>
-    <div style="color:orange; border-bottom: 1px solid #d9d9d9;
-    display: inline-block;
-    color: #999;
-    padding: 2px;">(a) Overview of Paired Window Attention (PWA). (b) Intuitive difference between depth-wise (DW) convolution and Johnson-Lindenstrauss guided Convolution (JLC) in the feature space.</div>
-</center>
-
-1. **Encoder** (`Encoder.py`): Dual-branch architecture
-   - Modal-Fusion Convolution Layer with JLC blocks
-    <center>
-        <img style="border-radius: 0.3125em;
-        box-shadow: 0 2px 4px 0 rgba(34,36,38,.12),0 2px 10px 0 rgba(34,36,38,.08);" 
-        src="fig/PWA.png">
-        <br>
-        <div style="color:orange; border-bottom: 1px solid #d9d9d9;
-        display: inline-block;
-        color: #999;
-        padding: 2px;">Detailed architecture of Paired Window Attention (PWA). This figure focuses on visually showing the feature flows of PWA.</div>
-    </center>
-   - Modal-Cooperative Transformer Layer with PWA blocks
-
-2. **Decoder** (`Decoder.py`): Dual-decoder architecture
-   - Segmentation Decoder (Student): Primary segmentation task
-   - Reconstruction Decoder (Teacher): Self-supervised texture teacher
-
-3. **Main Model** (`VeloxSeg.py`): Integrates encoder and decoder with SDKT
-
-## File Structure
-
-```
-VeloxSeg/
-├── model/
-│   ├── components/          # Core components (attention, convolution blocks, etc.)
-│   ├── Encoder.py           # Dual-stream encoder implementation
-│   ├── Decoder.py           # Dual-decoder with SDKT
-│   └── VeloxSeg.py          # Main model class
-├── config/                  # Configuration files for different datasets
-├── utils/                   # Training and inference utilities
-├── preprocess/              # Data preprocessing scripts
-├── compared_model/          # Baseline model implementations
-├── run_train.py             # Training script
-├── run_test.py              # Testing script
-├── train.sh                 # Training commands
-├── test.sh                  # Testing commands
-├── fig/                     # Method and overview figures
-└── requirements.txt         # Python dependencies
-```
+The original standalone implementation and reported paper results are available
+on [master](https://github.com/JinPLu/VeloxSeg/tree/master). This branch uses a
+new stage-based architecture; historical checkpoints are incompatible.
 
 ## Installation
 
-### Environment Requirements
-
-- Ubuntu 22.04.4 LTS
-- Python 3.10.16
-- CUDA-capable runtime. The original environment used CUDA 12.2; install the PyTorch wheel that matches your driver/runtime.
-- NVIDIA GeForce RTX 3090 (or compatible GPU)
-
-### Setup
+Use a dedicated Python 3.11 environment with a CUDA-compatible PyTorch installation.
+The checked environment uses PyTorch 2.6.0 and nnUNetv2 2.6.2.
 
 ```bash
-# Create conda environment
-conda create -n VeloxSeg python==3.10
-conda activate VeloxSeg
+git clone -b nnVeloxSeg https://github.com/JinPLu/VeloxSeg.git
+cd VeloxSeg
+python -m pip install -r nnunet/requirements.txt
+python nnunet/install.py
 
-# Install PyTorch
-pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu118
-
-# Install other dependencies
-pip install -r requirements.txt
+export nnUNet_raw=/path/to/nnUNet_raw
+export nnUNet_preprocessed=/path/to/nnUNet_preprocessed
+export nnUNet_results=/path/to/nnUNet_results
+export nnUNet_compile=false
 ```
-
-`requirement.txt` is kept as a legacy alias for `requirements.txt`.
 
 ## Datasets
 
-The public training and inference entrypoints currently support:
+Prepare images and labels in nnU-Net format. Bundled metadata and folds are in
+[nnunet/config](nnunet/config/); use these folds only with matching case IDs.
 
-- **AutoPET-II**: Automated Lesion Segmentation in PET/CT Challenge
-- **Hecktor2022**: MICCAI Hecktor 2022 Challenge (Head & Neck)
-- **BraTS2021**: RSNA-ASNR-MICCAI Brain Tumor Segmentation Challenge 2021
+| Dataset | ID | Channel order | Shared S/B/L patch |
+|---|---:|---|---|
+| BraTS2021 | 137 | T1, T1ce, T2, FLAIR | 160×192×160 |
+| AutoPET-II | 221 | PET, CT | 160×224×224 |
+| Hecktor2022 | 990 | PET, CT | 160×256×256 |
 
-`config/train_config_bs4.json` also contains MSD2019 path placeholders, but MSD2019 is not wired into `run_train.py` or `run_test.py` yet.
-
-## Data Preprocessing
-
-Run the preprocessing scripts before training:
-
-```bash
-# Registration
-python ./preprocess/registration.py
-
-# Intensity normalization
-python ./preprocess/normalization_CT_PET.py  # For PET/CT datasets
-python ./preprocess/normalization_MRI.py     # For MRI datasets
-```
+Patches are generated from the supplied fingerprints and memory target.
+Your dataset may produce a different configuration.
 
 ## Training
 
-### Quick Start
-
-> On this `v2` branch, use the [nnUNet workflow and general planning rules](nnunet/README.md) to generate configurations from a dataset fingerprint. The standalone JSON examples below remain explicit reference configurations; they do not define the automatic planner.
-
 ```bash
-# Train on AutoPET-II dataset
-sh train.sh
+# Generate S/B/L plans and preprocess once (the tiers share a cache).
+nnUNetv2_plan_and_preprocess -d 990 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
 
-# Or choose another supported dataset
-DATASET_NAME=BraTS2021 GPU_ID=0 sh train.sh
+# Train B on fold 4. Replace B with S or L to choose another size.
+nnUNetv2_train 990 3d_fullres_B 4 -tr nnVeloxSegTrainer -p nnVeloxSegPlans -num_gpus 1
 ```
 
-### Custom Training
-
-`config/train_config_bs4.json` is the historical default config filename. The effective batch size is read from the JSON file.
-
-```bash
-python run_train.py \
-    --dataset_name AutoPETII \
-    --model_name VeloxSeg \
-    --train_config ./config/train_config_bs4.json \
-    --model_config ./config/models_config_autopetii.json \
-    --num_workers 4 \
-    --gpu_id 0
-```
-
-### Supported Datasets
-
-- **AutoPET-II**: `--dataset_name AutoPETII`
-- **Hecktor2022**: `--dataset_name Hecktor2022`
-- **BraTS2021**: `--dataset_name BraTS2021`
+Add `--c` to resume an existing run. For training followed by held-out test
+prediction and evaluation, use `bash nnunet/scripts/run_experiment.sh 990 B`.
+See the [experiment guide](nnunet/EXPERIMENTS.md) for six BraTS/AutoPET runs
+and the five Hecktor reference/auto configurations.
 
 ## Inference and Evaluation
 
 ```bash
-# Run inference and evaluation
-sh test.sh
-
-# Override checkpoint date or dataset when needed
-TRAIN_DATE=09_12 DATASET_NAME=Hecktor2022 sh test.sh
+nnUNetv2_predict -i /path/to/imagesTs -o /path/to/predictions \
+  -d 990 -c 3d_fullres_B -f 4 -tr nnVeloxSegTrainer \
+  -p nnVeloxSegPlans -chk checkpoint_final.pth
 ```
 
-### Custom Inference
+The [training-and-test script](nnunet/scripts/run_experiment.sh) also evaluates
+predictions against `labelsTs` and writes `test_summary.json`.
 
-```bash
-python run_test.py \
-    --dataset_name AutoPETII \
-    --model_name VeloxSeg \
-    --train_config ./config/train_config_bs4.json \
-    --model_config ./config/models_config_autopetii.json \
-    --test_config ./config/test_config.json \
-    --num_workers 4 \
-    --gpu_id 0 \
-    --train_date 09_12 \
-    --use_hd95 1
-```
+## Validation
 
-## Model Configuration
+BraTS, AutoPET and Hecktor S/B/L passed RTX3090 checks with real data, full planned
+patches and batch8: short training, validation, checkpoint resume and whole-case
+prediction. Long-run convergence and segmentation accuracy remain unverified;
+pretrained weights for this branch are not yet available.
 
-The model configuration files contain hyperparameters for different datasets:
-
-- `models_config_autopetii.json`: AutoPET-II configuration
-- `models_config_hecktor2022.json`: Hecktor2022 configuration  
-- `models_config_brats2021.json`: BraTS2021 configuration
-
-Key VeloxSeg parameters:
-
-- `input_size`: Input spatial dimensions (e.g., $[96, 96, 96]$)
-- `in_ch`: Input channels per modality (e.g., $[1, 1]$ for $\langle PET,CT\rangle$, $[2]$ for $PET+CT$)
-- `stages`: One ordered specification of per-axis stride, channels, JLC kernels/group width, PWA windows/heads and block depths; both encoders and decoders consume it.
-- `dropout`: Shared dropout probability.
-
-The v2 stage-based architecture changes checkpoint keys and the deep-supervision reduction. Historical checkpoints are not interchangeable with generated v2 plans.
-
-## Performance
-
-The following are published reference-model results, not measurements of the new automatically generated v2 configurations.
-
-### Computational Efficiency
-
-- **Parameters**: 1.66M (vs 88.62M for nnUNet)
-- **FLOPs**: 1.79G (vs 3078.83G for nnUNet)
-- **GPU Throughput**: 599.06 patches/s
-- **CPU Throughput**: 6.67 patches/s
-
-### Segmentation Performance
-
-- **AutoPET-II**: 62.51% Dice (vs 48.35% for SuperLightNet)
-- **Hecktor2022**: 56.48% Dice (vs 50.03% for SuperLightNet)
-- **BraTS2021**: 91.44% Dice (vs 89.72% for SuperLightNet)
+See [usage](nnunet/README.md) and [planning rules and measured evidence](nnunet/RULES.md)
+for the training objective, resource estimates and benchmark limitations.

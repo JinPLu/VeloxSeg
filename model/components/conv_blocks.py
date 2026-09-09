@@ -7,12 +7,13 @@ class DownConv(nn.Module):
 
         super().__init__()
 
+        stride = (patch_size,) * dim if isinstance(patch_size, int) else tuple(patch_size)
         self.down = get_conv(dim)(
             in_channels = in_channels,
             out_channels = out_channels,
-            kernel_size = 2*patch_size-1,
-            stride = patch_size,
-            padding = patch_size-1,
+            kernel_size = tuple(2 * size - 1 for size in stride),
+            stride = stride,
+            padding = tuple(size - 1 for size in stride),
             groups=groups
         )
         self.norm = get_norm("IN", dim)(out_channels) if use_norm else nn.Identity()
@@ -50,7 +51,7 @@ class JLC(nn.Module):
         if len(kernel_sizes) > 1:
             self.spatial_convs = nn.ModuleList([
                 nn.Sequential(
-                    conv(in_channels, in_channels, kernel_size, padding=kernel_size // 2, groups=groups),
+                    conv(in_channels, in_channels, kernel_size, padding=tuple(size // 2 for size in kernel_size) if isinstance(kernel_size, (tuple, list)) else kernel_size // 2, groups=groups),
                     norm(in_channels),
                     get_act(activation, inplace=True),
                 )
@@ -58,7 +59,7 @@ class JLC(nn.Module):
             ])
         else:
             self.spatial_convs = nn.ModuleList([
-                conv(in_channels, in_channels, kernel_sizes[0], padding=kernel_sizes[0] // 2, groups=groups)
+                conv(in_channels, in_channels, kernel_sizes[0], padding=tuple(size // 2 for size in kernel_sizes[0]) if isinstance(kernel_sizes[0], (tuple, list)) else kernel_sizes[0] // 2, groups=groups)
             ])
 
         self.channel_conv = nn.Sequential(

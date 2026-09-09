@@ -1,31 +1,30 @@
 import torch
 from torch import nn
 import monai
+from model.loss import VeloxSegLoss
 from .runtime import (
     a2fseg_deep_output_groups,
     normalized_deep_loss_weights,
-    veloxseg_output_layout,
 )
     
 class Loss(nn.Module):
-    def __init__(self, args, config, device, num_modal=2):
+    def __init__(self, args, config, device, model_config):
         super(Loss, self).__init__()
         self.model_name = args.model_name
         self.device = device
-        self.num_modal = num_modal
         
         self.seg_loss_ce = nn.CrossEntropyLoss()
         self.seg_loss_dice = monai.losses.DiceLoss(include_background=False, 
                                                     to_onehot_y=True, 
                                                     softmax=True)
-        self.rc_loss = nn.MSELoss()
-        self.gram_loss = nn.MSELoss()
         
         deep_loss_weight = torch.tensor(config['deep_Loss_weight'], dtype=torch.float32)
         
-        self.rc_loss_weight = config.get('RC_Loss_weight')
-        self.feature_loss_weight = config.get('Feature_Loss_weight')
         self.register_buffer("deep_loss_weight", deep_loss_weight)
+        if self.model_name == 'VeloxSeg':
+            self.veloxseg_loss = VeloxSegLoss(
+                self.seg_loss, model_config['in_ch'],
+                config['RC_Loss_weight'], config['Feature_Loss_weight'])
 
     def seg_loss(self, output, labels):
         return self.seg_loss_ce(output, labels.squeeze(1)) + self.seg_loss_dice(input=output, target = labels)
@@ -50,21 +49,7 @@ class Loss(nn.Module):
     def cal_loss(self, output, labels, sr_labels=None):
         
         if self.model_name in ["VeloxSeg"]:
-            layout = veloxseg_output_layout(len(output), self.num_modal)
-            seg_start, seg_end = layout["seg"]
-            # Each segmentation head contributes equally, without averaging.
-            seg_loss = sum(self.seg_loss(pred, labels) for pred in output[seg_start:seg_end])
-            rc_loss =  self.rc_loss(output[layout["reconstruction"]], sr_labels)
-            
-            feature_loss = 0
-            for teacher_index in layout["teacher_grams"]:
-                feature_loss = feature_loss + self.gram_loss(
-                    output[layout["decoder_gram"]],
-                    output[teacher_index],
-                )
-            feature_loss = feature_loss / self.num_modal
-
-            return seg_loss + self.rc_loss_weight * rc_loss + self.feature_loss_weight * feature_loss
+            return self.veloxseg_loss(output, labels, sr_labels)
 
         elif self.model_name == 'A2FSeg':
             loss = output[0].new_tensor(0.0)

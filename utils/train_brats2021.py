@@ -135,7 +135,8 @@ def run_train(args, train_config, model_config):
     logger.info(f"Now Model Config: \n{model_config[args.model_name]}\n")
     
     # loss for seg_rc_style_loss
-    seg_rc_style_loss = Loss(args=args, config=train_config, device=device, num_modal=num_modal)
+    seg_rc_style_loss = Loss(args=args, config=train_config, device=device,
+                             model_config=model_config[args.model_name])
 
     # data transform
     train_transforms = Compose(

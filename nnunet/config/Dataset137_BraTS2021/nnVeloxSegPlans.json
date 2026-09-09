@@ -1,0 +1,871 @@
+{
+  "dataset_name": "Dataset137_BraTS2021",
+  "plans_name": "nnVeloxSegPlans",
+  "original_median_spacing_after_transp": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "original_median_shape_after_transp": [
+    140.0,
+    171.0,
+    136.0
+  ],
+  "image_reader_writer": "SimpleITKIO",
+  "transpose_forward": [
+    0,
+    1,
+    2
+  ],
+  "transpose_backward": [
+    0,
+    1,
+    2
+  ],
+  "configurations": {
+    "3d_fullres_S": {
+      "data_identifier": "nnVeloxSegPlans_3d_fullres",
+      "preprocessor_name": "DefaultPreprocessor",
+      "median_image_size_in_voxels": [
+        140.0,
+        171.0,
+        136.0
+      ],
+      "spacing": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "normalization_schemes": [
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization"
+      ],
+      "use_mask_for_norm": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "resampling_fn_data": "resample_data_or_seg_to_shape",
+      "resampling_fn_data_kwargs": {
+        "is_seg": false,
+        "order": 3,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_seg": "resample_data_or_seg_to_shape",
+      "resampling_fn_seg_kwargs": {
+        "is_seg": true,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_probabilities": "resample_data_or_seg_to_shape",
+      "resampling_fn_probabilities_kwargs": {
+        "is_seg": false,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "batch_dice": false,
+      "training": {
+        "initial_lr": 0.001,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06,
+        "num_epochs": 1000,
+        "num_iterations_per_epoch": 250,
+        "num_val_iterations_per_epoch": 50,
+        "oversample_foreground_percent": 0.33,
+        "batch_dice": false,
+        "seed": 12345
+      },
+      "architecture": {
+        "network_class_name": "model.VeloxSeg.VeloxSeg",
+        "arch_kwargs": {
+          "input_size": [
+            160,
+            192,
+            160
+          ],
+          "in_ch": [
+            4
+          ],
+          "stages": [
+            {
+              "stride": [
+                4,
+                4,
+                4
+              ],
+              "channels": 8,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 8,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 8,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 16,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 16,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 32,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 16,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 64,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 32,
+              "expansion": 2,
+              "heads": 2,
+              "head_dim": 32,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            }
+          ],
+          "dropout": 0.0,
+          "spatial_dim": 3
+        },
+        "_kw_requires_import": []
+      },
+      "batch_size": 8,
+      "model_size": "S",
+      "resources": {
+        "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
+        "training_memory_target_gib": 24,
+        "memory_proxy_coefficients": [
+          0.9311187002204314,
+          3.6222506796570846
+        ],
+        "training_batch_size": 8,
+        "inference_batch_size": 1,
+        "estimated_training_reserved_gib": 8.415799814926766,
+        "parameters": 1046605
+      },
+      "patch_size": [
+        160,
+        192,
+        160
+      ]
+    },
+    "3d_fullres_B": {
+      "data_identifier": "nnVeloxSegPlans_3d_fullres",
+      "preprocessor_name": "DefaultPreprocessor",
+      "median_image_size_in_voxels": [
+        140.0,
+        171.0,
+        136.0
+      ],
+      "spacing": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "normalization_schemes": [
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization"
+      ],
+      "use_mask_for_norm": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "resampling_fn_data": "resample_data_or_seg_to_shape",
+      "resampling_fn_data_kwargs": {
+        "is_seg": false,
+        "order": 3,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_seg": "resample_data_or_seg_to_shape",
+      "resampling_fn_seg_kwargs": {
+        "is_seg": true,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_probabilities": "resample_data_or_seg_to_shape",
+      "resampling_fn_probabilities_kwargs": {
+        "is_seg": false,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "batch_dice": false,
+      "training": {
+        "initial_lr": 0.001,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06,
+        "num_epochs": 1000,
+        "num_iterations_per_epoch": 250,
+        "num_val_iterations_per_epoch": 50,
+        "oversample_foreground_percent": 0.33,
+        "batch_dice": false,
+        "seed": 12345
+      },
+      "architecture": {
+        "network_class_name": "model.VeloxSeg.VeloxSeg",
+        "arch_kwargs": {
+          "input_size": [
+            160,
+            192,
+            160
+          ],
+          "in_ch": [
+            4
+          ],
+          "stages": [
+            {
+              "stride": [
+                4,
+                4,
+                4
+              ],
+              "channels": 16,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 16,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 32,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 16,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 64,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "expansion": 2,
+              "heads": 2,
+              "head_dim": 16,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 128,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 32,
+              "expansion": 2,
+              "heads": 4,
+              "head_dim": 32,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            }
+          ],
+          "dropout": 0.0,
+          "spatial_dim": 3
+        },
+        "_kw_requires_import": []
+      },
+      "batch_size": 8,
+      "model_size": "B",
+      "resources": {
+        "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
+        "training_memory_target_gib": 24,
+        "memory_proxy_coefficients": [
+          0.9311187002204314,
+          3.6222506796570846
+        ],
+        "training_batch_size": 8,
+        "inference_batch_size": 1,
+        "estimated_training_reserved_gib": 9.751180032188499,
+        "parameters": 2607950
+      },
+      "patch_size": [
+        160,
+        192,
+        160
+      ]
+    },
+    "3d_fullres_L": {
+      "data_identifier": "nnVeloxSegPlans_3d_fullres",
+      "preprocessor_name": "DefaultPreprocessor",
+      "median_image_size_in_voxels": [
+        140.0,
+        171.0,
+        136.0
+      ],
+      "spacing": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "normalization_schemes": [
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization"
+      ],
+      "use_mask_for_norm": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "resampling_fn_data": "resample_data_or_seg_to_shape",
+      "resampling_fn_data_kwargs": {
+        "is_seg": false,
+        "order": 3,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_seg": "resample_data_or_seg_to_shape",
+      "resampling_fn_seg_kwargs": {
+        "is_seg": true,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_probabilities": "resample_data_or_seg_to_shape",
+      "resampling_fn_probabilities_kwargs": {
+        "is_seg": false,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "batch_dice": false,
+      "training": {
+        "initial_lr": 0.001,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06,
+        "num_epochs": 1000,
+        "num_iterations_per_epoch": 250,
+        "num_val_iterations_per_epoch": 50,
+        "oversample_foreground_percent": 0.33,
+        "batch_dice": false,
+        "seed": 12345
+      },
+      "architecture": {
+        "network_class_name": "model.VeloxSeg.VeloxSeg",
+        "arch_kwargs": {
+          "input_size": [
+            160,
+            192,
+            160
+          ],
+          "in_ch": [
+            4
+          ],
+          "stages": [
+            {
+              "stride": [
+                4,
+                4,
+                4
+              ],
+              "channels": 24,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 12,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 12,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 48,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 12,
+              "expansion": 2,
+              "heads": 1,
+              "head_dim": 12,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 96,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "expansion": 2,
+              "heads": 3,
+              "head_dim": 16,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 192,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 24,
+              "expansion": 2,
+              "heads": 6,
+              "head_dim": 24,
+              "big_window": [
+                5,
+                6,
+                5
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            }
+          ],
+          "dropout": 0.0,
+          "spatial_dim": 3
+        },
+        "_kw_requires_import": []
+      },
+      "batch_size": 8,
+      "model_size": "L",
+      "resources": {
+        "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
+        "training_memory_target_gib": 24,
+        "memory_proxy_coefficients": [
+          0.9311187002204314,
+          3.6222506796570846
+        ],
+        "training_batch_size": 8,
+        "inference_batch_size": 1,
+        "estimated_training_reserved_gib": 10.47021811556792,
+        "parameters": 4245919
+      },
+      "patch_size": [
+        160,
+        192,
+        160
+      ]
+    }
+  },
+  "experiment_planner_used": "VeloxSegPlanner",
+  "label_manager": "LabelManager",
+  "foreground_intensity_properties_per_channel": {
+    "0": {
+      "max": 100487.5078125,
+      "mean": 904.0574340820312,
+      "median": 395.0,
+      "min": 1.0,
+      "percentile_00_5": 119.0,
+      "percentile_99_5": 4365.0,
+      "std": 2194.0966796875
+    },
+    "1": {
+      "max": 1905559.25,
+      "mean": 1879.53955078125,
+      "median": 542.0,
+      "min": 2.0,
+      "percentile_00_5": 113.0,
+      "percentile_99_5": 8129.0,
+      "std": 20990.79296875
+    },
+    "2": {
+      "max": 4438107.0,
+      "mean": 2362.4501953125,
+      "median": 729.0,
+      "min": 0.0,
+      "percentile_00_5": 110.0,
+      "percentile_99_5": 5698.0,
+      "std": 50524.0390625
+    },
+    "3": {
+      "max": 580014.3125,
+      "mean": 1025.9791259765625,
+      "median": 511.0,
+      "min": 0.0,
+      "percentile_00_5": 121.0,
+      "percentile_99_5": 3722.0,
+      "std": 5075.81494140625
+    }
+  },
+  "veloxseg_model_policy": {
+    "stem_pooling_transitions": 2,
+    "minimum_feature_edge": 4,
+    "conv_depth": 1,
+    "attn_depth": 1,
+    "expansion": 2,
+    "channels_per_attention_head": 32,
+    "minimum_group_width": 4,
+    "dropout": 0.0
+  },
+  "veloxseg_model_capacities": {
+    "S": {
+      "base_channels": 8,
+      "maximum_channels": 160
+    },
+    "B": {
+      "base_channels": 16,
+      "maximum_channels": 320
+    },
+    "L": {
+      "base_channels": 24,
+      "maximum_channels": 480
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import torch
+from torch.nn import functional as F
 import numpy as np
 import copy
 from medpy.metric.binary import hd95
@@ -18,6 +19,8 @@ def show_deep_metrics(outputs, labels, deep=True):
     res = [fp, fn, iou, dice]
     if deep and len(outputs) > 1:
         for output in outputs[1:]:
+            output = F.interpolate(output.detach(), size=labels.shape[2:],
+                                   mode='trilinear', align_corners=False)
             output = output.argmax(dim=1, keepdim=True)
             fp, fn, _, _, _, iou, dice = metrics_tensor(labels, output)
             string += f"[FP:{fp:.4f}, FN:{fn:.4f}, IoU:{iou:.4f}, Dice:{dice:.4f} pix:{output.sum():6}/{labels.sum():6}]\n"

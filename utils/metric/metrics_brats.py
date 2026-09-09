@@ -1,4 +1,5 @@
 import torch
+from torch.nn import functional as F
 import numpy as np
 import copy
 from medpy.metric.binary import hd95
@@ -12,6 +13,8 @@ def show_deep_metrics(outputs, labels, deep=True):
     res = [avg_dice, et_dice, tc_dice, wt_dice]
     if deep and len(outputs) > 1:
         for output in outputs[1:]:
+            output = F.interpolate(output.detach(), size=labels.shape[2:],
+                                   mode='trilinear', align_corners=False)
             output = output.argmax(dim=1, keepdim=True)
             avg_dice, et_dice, tc_dice, wt_dice = cal_dice(labels, output)
             string += f"[Avg:{avg_dice:.4f}, ET:{et_dice:.4f}, TC:{tc_dice:.4f}, WT:{wt_dice:.4f} pix:{(output != 0).sum():6}/{(labels != 0).sum():6}]\n"

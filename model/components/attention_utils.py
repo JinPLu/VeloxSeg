@@ -125,44 +125,18 @@ class PositionalEmbedding(nn.Module):
         return relative_position_bias
 
 class PatchMerging(nn.Module):
-    
-    def __init__(self, in_ch: int, norm_layer=LayerNorm, dim: int = 3):
+    """Gather adjacent voxels using the planned per-axis stride, then project."""
+    def __init__(self, in_ch, out_ch, stride, norm_layer=LayerNorm, dim=3):
         super().__init__()
-        self.in_ch = in_ch
-        self.dim = dim
-        
-        if dim == 2:
-            conv = nn.Conv2d
-            self.mid_ch = self.in_ch * 4
-        elif dim == 3:
-            conv = nn.Conv3d
-            self.mid_ch = self.in_ch * 8
-        
-        self.reduction = conv(self.mid_ch, 2 * self.in_ch, 1, 1, 0, bias=False)
-        self.norm = norm_layer(self.mid_ch, data_format="channels_first", dim=self.dim)
-        
-    def faeture_sample(self, x):
-        xs = []
-        if self.dim == 2:
-            xs.append(x[:, :, 0::2, 0::2])
-            xs.append(x[:, :, 0::2, 1::2])
-            xs.append(x[:, :, 1::2, 0::2])
-            xs.append(x[:, :, 1::2, 1::2])
-        elif self.dim == 3:
-            xs.append(x[:, :, 0::2, 0::2, 0::2])
-            xs.append(x[:, :, 0::2, 0::2, 1::2])
-            xs.append(x[:, :, 0::2, 1::2, 0::2])
-            xs.append(x[:, :, 0::2, 1::2, 1::2])
-            xs.append(x[:, :, 1::2, 0::2, 0::2])
-            xs.append(x[:, :, 1::2, 0::2, 1::2])
-            xs.append(x[:, :, 1::2, 1::2, 0::2])
-            xs.append(x[:, :, 1::2, 1::2, 1::2])
-    
-        return torch.cat(xs, dim=1)
- 
+        from math import prod
+        self.stride = tuple(stride)
+        channels = in_ch * prod(stride)
+        self.norm = norm_layer(channels, data_format='channels_first', dim=dim)
+        self.reduction = get_conv(dim)(channels, out_ch, 1, bias=False)
+
     def forward(self, x):
-        x = self.faeture_sample(x)
-        x = self.norm(x)
-        x = self.reduction(x)
- 
-        return x
+        from itertools import product
+        sampled = [x[(slice(None), slice(None), *[slice(offset, None, step)
+                    for offset, step in zip(offsets, self.stride)])]
+                   for offsets in product(*(range(step) for step in self.stride))]
+        return self.reduction(self.norm(torch.cat(sampled, dim=1)))

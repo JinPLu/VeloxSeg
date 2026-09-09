@@ -1,17 +1,17 @@
 import torch
 from torch import nn
-from einops import einsum
+from math import sqrt
 
 def concat(*args):
     return torch.cat(args, dim=1)
 
 def get_pram_matrix(x):
-    if len(x.shape) == 4:
-        c, h, w = x.size()[-3:]
-        return einsum(x, x, 'b m h w, b n h w -> b m n') / (c * h * w)
-    elif len(x.shape) == 5:
-        c, h, w, d = x.size()[-4:]
-        return einsum(x, x, 'b m h w d, b n h w d -> b m n') / (c * h * w * d)
+    # FP16 spatial sums can overflow before division by C*N. Keep both
+    # operands and accumulation in FP32, scaling before the matrix product.
+    with torch.autocast(device_type=x.device.type, enabled=False):
+        features = x.float().flatten(2)
+        features = features / sqrt(features.shape[1] * features.shape[2])
+        return features @ features.transpose(1, 2)
 
 def split_output_channel(output, channels, mappings = lambda x: x):
     

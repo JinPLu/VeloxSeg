@@ -1,0 +1,37 @@
+{
+    "channel_names": {
+        "0": "T1",
+        "1": "T1ce",
+        "2": "T2",
+        "3": "Flair"
+    },
+    "labels": {
+        "background": 0,
+        "whole tumor": [
+            1,
+            2,
+            3
+        ],
+        "tumor core": [
+            2,
+            3
+        ],
+        "enhancing tumor": [
+            3
+        ]
+    },
+    "numTraining": 1000,
+    "file_ending": ".nii.gz",
+    "licence": "see https://www.synapse.org/#!Synapse:syn25829067/wiki/610863",
+    "converted_by": "Please enter your name, especially when sharing datasets with others in a common infrastructure!",
+    "reference": "see https://www.synapse.org/#!Synapse:syn25829067/wiki/610863",
+    "regions_class_order": [
+        1,
+        2,
+        3
+    ],
+    "dataset_release": "1.0",
+    "veloxseg_modality_channels": [
+        4
+    ]
+}

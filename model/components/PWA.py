@@ -4,7 +4,7 @@ from einops import rearrange
 from torch.nn import functional as F
 from monai.networks.layers import DropPath
 from typing import Sequence
-from .attention_utils import FFN, LayerNorm, PositionalEmbedding, PatchMerging
+from .attention_utils import FFN, LayerNorm, PositionalEmbedding
 from math import ceil
 
 class Paired_Windows_Attention(nn.Module):
@@ -50,7 +50,6 @@ class Paired_Windows_Attention(nn.Module):
             self.window_gathering = self.window_gathering_3d if self.dim == 3 else self.window_gathering_2d
             self.window_scattering = self.window_scattering_3d if self.dim == 3 else self.window_scattering_2d
 
-            self.softmax = nn.Softmax(dim=-1)
             self.dropout_weight = nn.Dropout(dropout)
     
     def get_window_sizes(self):
@@ -58,13 +57,22 @@ class Paired_Windows_Attention(nn.Module):
         min_big_window_size = torch.tensor(self.min_big_window_size)
         min_small_window_size = torch.tensor(self.min_small_window_size)
         
+        ratios = input_size // min_big_window_size
+        if ((input_size % min_big_window_size) != 0).any() or not (ratios == ratios[0]).all():
+            raise ValueError('PWA windows must tile all axes with a common scale ratio')
+        ratio = int(ratios[0])
+        if ratio < 1 or ratio & (ratio - 1) or self.scale_factor != 2:
+            raise ValueError('PWA requires a power-of-two ratio to global coverage')
+        if ((min_big_window_size % min_small_window_size) != 0).any():
+            raise ValueError('PWA pooling windows must divide the attention windows')
+
         bw_sizes = []
         sw_sizes = []
         
         bw = min_big_window_size
         sw = min_small_window_size
         
-        while (bw <= input_size).any():
+        while (bw <= input_size).all():
             bw_sizes.append(bw.tolist())
             sw_sizes.append(sw.tolist())
 
@@ -85,22 +93,21 @@ class Paired_Windows_Attention(nn.Module):
         return bw_sizes, sw_sizes
 
     def attention_operation(self, query, key, value):
-        # query, key, value: (b, head, Ns, l, c)
-        l, c = query.shape[-2:]
-
-        scores = torch.einsum('bhNmc, bhNnc -> bhNmn', [query, key]) / (c ** 0.5)
-        
-
+        # Windows are independent attention batches. SDPA retains the PWA
+        # equation while allowing PyTorch to choose its efficient kernel.
+        batch, heads, windows, tokens, _ = query.shape
+        bias = None
         if self.use_pos_embed:
-            relative_position_bias = self.position_embedding.get_relative_position_bias(l = l)[None, :, None]
-            scores = scores + relative_position_bias
-        
-        weights = self.softmax(scores)
-        weights = self.dropout_weight(weights)
-        
-        attention = torch.einsum('bhNmn, bhNnc -> bhNmc', [weights, value])
-        # attention: (b, head, Ns, l, c)
-        return attention
+            spatial_tokens = self.position_embedding.relative_position_index.shape[0]
+            modalities = tokens // spatial_tokens
+            bias = self.position_embedding.get_relative_position_bias(l=spatial_tokens)
+            bias = bias.repeat(1, modalities, modalities).to(query.dtype)
+        def pack(tensor):
+            return tensor.permute(0, 2, 1, 3, 4).reshape(batch * windows, heads, tokens, -1)
+        attention = F.scaled_dot_product_attention(
+            pack(query), pack(key), pack(value), attn_mask=bias,
+            dropout_p=self.dropout_weight.p if self.training else 0.0)
+        return attention.reshape(batch, windows, heads, tokens, -1).permute(0, 2, 1, 3, 4)
 
 
     def window_gathering_3d(self, x):
@@ -305,27 +312,6 @@ class MultiModal_Paired_Windows_Attention(Paired_Windows_Attention):
             self.window_gathering = self.window_gathering_3d if self.dim == 3 else self.window_gathering_2d
             self.window_scattering = self.window_scattering_3d if self.dim == 3 else self.window_scattering_2d
 
-    def attention_operation(self, query, key, value):
-        # query, key, value: (b, head, Ns, ml, c)
-        ml, c = query.shape[-2:]
-        l = ml // self.num_modalities
-
-        scores = torch.einsum('bhNmc, bhNnc -> bhNmn', [query, key]) / (c ** 0.5)
-        
-
-        if self.use_pos_embed:      
-            relative_position_bias = self.position_embedding.get_relative_position_bias(l = l)
-            for i in range(self.num_modalities):
-                for j in range(self.num_modalities):
-                    scores[:, :, :, i*l:(i+1)*l, j*l:(j+1)*l] = scores[:, :, :, i*l:(i+1)*l, j*l:(j+1)*l] + relative_position_bias[None, :, None]
-        
-        weights = self.softmax(scores)
-        weights = self.dropout_weight(weights)
-        
-        attention = torch.einsum('bhNmn, bhNnc -> bhNmc', [weights, value])
-        # attention: (b, head, Ns, l, c)
-        return attention
-    
     def forward(self, inputs):
         
         if self.num_heads == 0:
@@ -460,7 +446,6 @@ class Transformer_BasicLayer(nn.Module):
         act_layer: str = "GELU",
         norm_layer: type[LayerNorm] = LayerNorm,
         qkv_bias: bool = True,
-        do_downsample: bool = True,
         dim: str = 3
     ):
 
@@ -489,28 +474,12 @@ class Transformer_BasicLayer(nn.Module):
                 for i in range(depth)
             ]
         )
-        self.downs = None
-        if do_downsample:
-            self.downs = nn.ModuleList([PatchMerging(in_ch=in_channels[m], norm_layer=norm_layer, dim=dim)\
-                                for m in range(self.num_modalities)])
-
-    def attn_forward(self, xs: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
-        for blk in self.blocks:
-            xs = blk(xs)
+    def forward(self, xs):
+        for block in self.blocks:
+            xs = block(xs)
         return xs
-    
-    def down_forward(self, xs: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
-        down = None
-        if self.downs is not None:
-            down = [self.downs[m](xs[m]) for m in range(self.num_modalities)]
-        return down
-    
-    def forward(self, xs: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
-        xs = self.attn_forward(xs)
-        down = self.down_forward(xs)
-        return xs, down
 
-        
+
 class Cross_Channel_Attention(nn.Module):
 
     def __init__(self, ch1: Sequence[int], ch2: int, channel_reduction: int = 4, spatial_dim: int = 3,

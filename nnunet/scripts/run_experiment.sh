@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 : "${nnUNet_raw:?Set nnUNet_raw}"
 : "${nnUNet_preprocessed:?Set nnUNet_preprocessed}"
 : "${nnUNet_results:?Set nnUNet_results}"

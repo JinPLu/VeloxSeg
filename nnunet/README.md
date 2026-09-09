@@ -36,3 +36,7 @@ The installer links `model` and `utils` to this checkout and installs the nnU-Ne
 extensions. Keep the checkout in place and rerun `python nnunet/install.py` after
 changing extension files. Use a dedicated environment for the two historical
 Hecktor reference implementations; their setup is described in the experiment guide.
+
+Training commands report at epoch boundaries. The experiment script disables
+Python stdout buffering for platform logs. For an already-running buffered job,
+follow `training_log_*.txt` in its fold output directory; it is written directly.

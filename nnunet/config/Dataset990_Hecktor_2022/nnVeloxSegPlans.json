@@ -306,15 +306,15 @@
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
-        "runtime_reserve_gib": 1,
-        "training_tensor_budget_gib": 23.0,
+        "runtime_reserve_gib": 2,
+        "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
           0.9311187002204314,
           3.6222506796570846
         ],
         "training_batch_size": 8,
         "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 13.196148208487077,
+        "estimated_training_reserved_gib": 13.514971756198015,
         "parameters": 3525167
       },
       "patch_size": [
@@ -606,15 +606,15 @@
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
-        "runtime_reserve_gib": 1,
-        "training_tensor_budget_gib": 23.0,
+        "runtime_reserve_gib": 2,
+        "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
           0.9311187002204314,
           3.6222506796570846
         ],
         "training_batch_size": 8,
         "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 16.316460029683352,
+        "estimated_training_reserved_gib": 17.21723454100004,
         "parameters": 9144326
       },
       "patch_size": [
@@ -906,15 +906,15 @@
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
-        "runtime_reserve_gib": 1,
-        "training_tensor_budget_gib": 23.0,
+        "runtime_reserve_gib": 2,
+        "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
           0.9311187002204314,
           3.6222506796570846
         ],
         "training_batch_size": 8,
         "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 19.464251701722514,
+        "estimated_training_reserved_gib": 20.94697717664495,
         "parameters": 15518173
       },
       "patch_size": [

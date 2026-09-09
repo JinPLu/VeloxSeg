@@ -14,7 +14,8 @@ uses this same policy for native commands and exported fingerprints. Generated
 plans contain complete stages, training settings and the resource-estimate method.
 
 **Current status:** the planner now holds the training batch fixed at **8**,
-as requested, and shrinks the patch until its reference-based estimate fits24GiB.
+as requested, and shrinks the patch until its reference-based tensor estimate
+fits22GiB inside the24GiB target, reserving2GiB for measured error/runtime costs.
 Batch4 is the comparison setting. It does not fill leftover memory by increasing
 batch further. The S/B/L family uses base channels8/16/24, with B as the reference.
 All three share geometry selected against the largest member. This is a concrete memory-pressure experiment, not proof of
@@ -29,7 +30,7 @@ while equal-batch8 training updates increase from0.171s to0.951s. Report this
 trade-off whenever presenting the new configuration's efficiency. Accuracy and
 real-case end-to-end timing remain unverified; batch4 versus8 is not yet settled.
 
-### S/B/L family (2026-09-09; training and accuracy validation pending)
+### S/B/L family (2026-09-09)
 
 Use width multipliers0.5/1/1.5 around the established base16 B reference:
 S starts at8 channels (cap160), B at16 (cap320), L at24 (cap480). Keep one
@@ -50,24 +51,30 @@ Current public-model instantiations and registered-op FP32 batch1 FLOP counts:
 
 | Dataset / shared candidate patch | Tier | Stage channels | Total parameters | Inference-path parameters | Counted GFLOPs | Estimated batch8 reserved GiB |
 |---|---|---|---:|---:|---:|---:|
-| AutoPET /192×256×256 | S | 8/16/32/64/128 | 3,526,049 | 2,375,227 | 30.155 | 15.938 |
-| AutoPET /192×256×256 | B | 16/32/64/128/256 | 9,145,894 | 6,365,664 | 62.626 | 19.667 |
-| AutoPET /192×256×256 | L | 24/48/96/192/384 | 15,520,427 | 11,160,837 | 95.136 | 23.425 |
-| BraTS /160×192×160 | S | 8/16/32/64 | 1,046,605 | 825,335 | 14.548 | 8.416 |
-| BraTS /160×192×160 | B | 16/32/64/128 | 2,607,950 | 2,070,568 | 36.191 | 9.751 |
-| BraTS /160×192×160 | L | 24/48/96/192 | 4,245,919 | 3,370,761 | 49.002 | 10.470 |
+| AutoPET /160×224×224 | S | 8/16/32/64 | 1,242,785 | 883,773 | 24.171 | 14.950 |
+| AutoPET /160×224×224 | B | 16/32/64/128 | 3,151,996 | 2,283,064 | 44.605 | 17.805 |
+| AutoPET /160×224×224 | L | 24/48/96/192 | 5,418,071 | 3,946,931 | 65.217 | 20.677 |
+| BraTS /160×192×160 | S | 8/16/32/64 | 1,046,605 | 825,335 | 14.548 | 8.286 |
+| BraTS /160×192×160 | B | 16/32/64/128 | 2,607,950 | 2,070,568 | 36.191 | 9.758 |
+| BraTS /160×192×160 | L | 24/48/96/192 | 4,245,919 | 3,370,761 | 49.002 | 10.613 |
 
-The sizing rationale is explicit. At the existing AutoPET B patch224×256×256,
-base24 has15.523M parameters/111.195GFLOPs, versus base32 at26.701M/161.797GFLOPs.
-Base24 provides an intermediate capacity increase without defaulting to a
-2×-width L. L at this original patch estimates27.427GiB for batch8; the ordinary
-shrinking rule proposes192×256×256 at23.425GiB. The latter is a **candidate**,
-not a measured training CUDA pass: the memory proxy was calibrated at base16 and its
-transfer to S/L is unverified. Parameters are actual instantiated counts, FLOPs
-are registered-operation counts and training memory is an estimate. Synthetic
-batch1 inference has now been measured below; training memory and accuracy for
-S/L remain unverified. The existing B patch and
-batch4/8 measurements remain separate comparisons; they are not silently replaced.
+Before the FP32 embedding correction, the original AutoPET192×256×256 candidate estimated23.425GiB for L/batch8,
+but failed its first real-data backward pass on RTX3090. A separate reproduction
+reached22.888GiB allocated/23.365GiB reserved and failed to allocate a cuBLAS
+handle. At192×224×256, measured reserved memory23.090GiB exceeded the22.071GiB
+estimate. Reserving2GiB for error plus CUDA/runtime allocations rejects both;
+the same search then selects160×224×224.192×224×224 estimates24.538GiB because
+PWA geometry changes discretely, so shrinking patch volume does not guarantee
+monotonically smaller memory. Regenerating after the FP32 embedding correction
+retains160×224×224; its current estimates appear in the table. All tiers share
+the accepted geometry.
+
+This update also changes AutoPET from five stages to four; S/B/L widths remain
+8/16/24. The earlier base24 versus32 sizing rationale motivated the width family,
+not a fixed parameter count. Counts above describe current instantiated models;
+old AutoPET inference timings below describe the withdrawn five-stage geometry.
+Parameters are actual counts, FLOPs are registered operations, and the memory
+proxy is still an estimate. Accuracy remains unverified.
 
 Suggested evaluation: validate L's memory boundary first, then compare all three
 on the shared geometry with the same sampling/update schedule, augmentation,
@@ -77,6 +84,11 @@ memory and whole-volume latency. Any selected batch4 alternative should regenera
 one shared geometry for the entire family. Do not choose a tier from FLOPs alone.
 
 ### Measured S/B/L batch1 inference
+
+The AutoPET rows below retain the earlier192×256×256/five-stage measurements.
+They do not measure the corrected160×224×224/four-stage models. All timings
+also precede the FP32 input-embedding fix; BraTS geometry is unchanged, but its
+precision changed too.
 
 All previous whole-volume sliding-window times also used **inference batch1**:
 the native predictor creates each window with a singleton batch axis (`d[s][None]`)
@@ -268,7 +280,9 @@ runs remain unverified. Fake persistent tensors are retained during inventory
 so weak converter references cannot recycle excluded storage identities;
 three repeated inventories per reference returned identical counts.
 
-The target is **24 GiB by default**, independent of **batch-1 inference**.
+The device target is **24 GiB by default**, independent of **batch-1 inference**.
+The tensor acceptance budget is target minus2GiB; this reserve was introduced
+after the observed L backward failure and the subsequent1.019GiB estimate error.
 Use the requested fixed training batch throughout candidate evaluation. The
 metadata CLI accepts `--training-batch-size` (default8). Reserved memory includes
 allocator cache; external CUDA allocations and other processes are outside this
@@ -291,7 +305,7 @@ model with reconstruction losses. See the
 | Schedule | Cosine decay to 6e-6 over 1000 epochs |
 | Sampling budget | 250 updates and 50 validation batches per epoch; 0.33 foreground oversampling |
 | Data pipeline | Official nnUNet augmentation, folds, region handling and sliding-window prediction |
-| Precision | CUDA FP16 autocast + inherited GradScaler; unscale then clip gradient norm to 12. Gram construction and objective reductions use FP32. CPU training remains FP32. Short synthetic CUDA updates passed; long-run convergence is unverified. |
+| Precision | CUDA FP16 autocast + inherited GradScaler; compact patch embedding executes in FP32 to avoid the observed bias-gradient overflow; unscale then clip gradient norm to 12. Gram construction and objective reductions use FP32. CPU training remains FP32. Full-patch real-data RTX3090 checks passed for the six BraTS/AutoPET tiers; long-run convergence is unverified. |
 | Segmentation | CE+Dice for class labels; BCE+Dice for regions; per-sample Dice for this fullres-only workflow |
 | Deep supervision | Native-resolution logits with nearest-neighbor target resizing; supervise decoded features, omit the undecoded bottleneck; normalize `2^-level` weights to sum to 1 so adding stages does not multiply the segmentation objective |
 | Reconstruction | Per-modality elementwise MSE, then average modality groups; coefficient 0.5 |
@@ -371,10 +385,46 @@ batch8 by default. Existing checkpoints/plans keep their original configuration.
 
 ## Generated examples and verification
 
+### Full-patch RTX3090 checks
+
+All six corrected configurations passed real-data checks at their full planned
+patch and batch8, PyTorch2.6/cu124, native two-worker augmentation and default
+GradScaler initial value65536. Each initial phase used20 native training calls
+on three augmented batches (14/3/3 calls), followed by three online validation
+batches and a further effective training update in the same process. Initial
+scaler backoffs are excluded from the effective-update counts below. All losses,
+effective gradients and validation counts were finite.
+
+| Dataset / tier | Effective updates in 20 calls | Peak allocated / reserved GiB | Resume / whole-case inference |
+|---|---:|---:|---|
+| BraTS / S | 14 | 6.331 / 12.182 | passed / passed |
+| BraTS / B | 15 | 7.811 / 13.850 | passed / passed |
+| BraTS / L | 14 | 9.232 / 15.533 | passed / passed |
+| AutoPET / S | 13 | 8.729 / 12.271 | passed / passed |
+| AutoPET / B | 13 | 11.837 / 15.543 | passed / passed |
+| AutoPET / L | 13 | 15.404 / 20.934 | passed / passed |
+
+Each checkpoint was then loaded in a fresh process at epoch1, followed by three
+effective training updates, finite online validation and one native batch1
+whole-case prediction. Actual preprocessed case shapes were140×176×133 for
+BraTS and619×400×400 for AutoPET; predictions were finite. This inference check
+used Gaussian fusion/step0.5 without TTA or export, and is not an accuracy score.
+Peak memory above spans the initial training, online validation and return to
+training; reserved includes allocator cache, but excludes external CUDA memory.
+The direct-Trainer lifecycle above used the backend default (`benchmark=False`).
+A separate check matched the production CLI (`cudnn.benchmark=True`,
+`deterministic=False`) on all six full configurations, reusing one real augmented
+batch for20 calls plus validation and a further effective update. All passed.
+Reserved peaks for BraTS S/B/L were11.971/13.857/15.461GiB; AutoPET S/B/L were
+12.264/15.559/20.912GiB. Native predictor construction enables benchmark mode,
+so the whole-case inference checks also exercised it.
+These bounded checks do not establish1000-epoch convergence or long-run stability.
+
 Bundled plans now contain `3d_fullres_S/B/L` at the shared batch8 geometry.
 All six configuration names passed CPU 32³ synthetic native training, validation,
 checkpoint reload, resumed updates and sliding-window inference. These reduced
-checks do not establish full-patch CUDA training fit.
+CPU checks alone did not establish full-patch CUDA training fit; the real-data
+RTX3090 evidence is given above.
 
 The earlier base16 fixed-batch comparison below uses its original patches, not
 the new shared AutoPET geometry. On idle RTX3090 GPU4, its four candidates
@@ -532,7 +582,7 @@ current calibrated proxy and compact stem address these two separate issues.
 | Configuration selection | 2D, 3D fullres and available lowres/cascade candidates; cross-validation predictions guide best configuration/ensembles | Only 3D fullres is in scope. Real-data fold/configuration validation remains open; no lowres/cascade implementation is planned for this work. |
 | Sampling / augmentation | Foreground-aware crops, larger pre-augmentation crop, rotations/scales, noise/blur/intensity/gamma/low-resolution/mirroring; strongly anisotropic patches use dummy-2D augmentation | Inherited. Configured 0.33 foreground oversampling rounds to one forced-foreground sample in a batch of 2, i.e. 50% of that batch. Spatial transforms preserve channel alignment; intensity transforms need not be identical across modalities. |
 | Optimization | SGD, LR 0.01, momentum 0.99/Nesterov, weight decay 3e-5, polynomial schedule; 1000 epochs ×250 updates, 50 validation batches | Update budget inherited; AdamW/cosine is a VeloxSeg policy. Changing batch changes sample exposure; nnUNet does not automatically turn this into an exposure-matched experiment. |
-| Precision | CUDA autocast + GradScaler; unscale then clip gradients to norm 12 | Adapted: CUDA FP16 autocast, inherited GradScaler/checkpoint state, unscale then norm-12 clipping. Gram and loss reductions stay FP32. CPU FP16 numerical checks and short actual CUDA updates passed; long-run numerical behavior remains open. |
+| Precision | CUDA autocast + GradScaler; unscale then clip gradients to norm 12 | Adapted: CUDA FP16 autocast, inherited GradScaler/checkpoint state, unscale then norm-12 clipping. Patch embedding, Gram and loss reductions stay FP32. CPU FP16 numerical checks and short actual CUDA updates passed; long-run numerical behavior remains open. |
 | Segmentation loss | CE+Dice or region BCE+Dice, ignore-label handling, memory-efficient Dice; batch-Dice depends on configuration | Label handling reused; sample-wise Dice matches fullres without cascade. If lowres/cascade is introduced, revisit configuration-specific Dice rather than sharing one global boolean. |
 | Deep supervision | Native-scale decoder outputs and downsampled targets, normalized powers of 1/2; final lowest-resolution output weight is zero (tiny nonzero in a DDP case) | Adapted to native scales in the shared loss. Normalized 2^-level weights retain every decoded head and exclude the undecoded bottleneck; we do not copy the extra zero weight, which would discard a different level and leave unused head parameters. |
 | Validation / checkpoints | Online patch Dice is an approximate training signal; full-case validation, checkpoints and fold predictions support selection | Native lifecycle reused. CPU synthetic resume passed; no real-data convergence, exact multiworker RNG resume or DDP verification is claimed. |

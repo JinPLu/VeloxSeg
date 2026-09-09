@@ -60,7 +60,12 @@ class Transformer_Encoder(nn.Module):
 
     def forward(self, x):
         modalities = x.split(self.in_channels, dim=1)
-        xs = [embed(modality) for embed, modality in zip(self.patch_embeds, modalities)]
+        # Real padded MRI patches produce a large embedding-bias gradient.
+        # Its FP16 convolution reduction overflows even after repeated scaler
+        # backoff. Keep this compact input projection/normalization in FP32;
+        # the subsequent attention and convolution stages still use autocast.
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            xs = [embed(modality.float()) for embed, modality in zip(self.patch_embeds, modalities)]
         features = []
         for index, layer in enumerate(self.layers):
             if index:

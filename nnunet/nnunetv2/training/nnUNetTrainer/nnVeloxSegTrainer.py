@@ -86,7 +86,9 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         if self.label_manager.has_regions:
             predicted = (torch.sigmoid(output) > .5).long()
         else:
-            predicted = torch.zeros_like(output)
+            # Full-patch voxel counts exceed FP16's finite range. Match the
+            # upstream trainer's FP32 one-hot tensor for online Dice reduction.
+            predicted = torch.zeros_like(output, dtype=torch.float32)
             predicted.scatter_(1, output.argmax(1, keepdim=True), 1)
         mask = None
         if self.label_manager.has_ignore_label:

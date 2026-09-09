@@ -24,31 +24,40 @@ follow dataset geometry. The first two nnUNet pooling transitions form a compact
 stem; neither 96³ nor a fixed number of stages is imposed.
 
 The planner fixes **training batch8**, then shrinks one shared patch until the
-largest family member's memory estimate fits **24GiB**. S/B/L use that same
+largest family member's tensor estimate fits **22 GiB within a 24 GiB target**.
+The remaining 2 GiB covers observed estimation error and CUDA/runtime allocations. S/B/L use that same
 geometry for a controlled width comparison. Batch4 is a separate planning
 comparison, not one of these six experiments. This is a calibrated heuristic,
 not an accuracy-selected optimum; the training-memory proxy was calibrated at B
-and its transfer to S/L remains unverified.
+and does not guarantee a device-memory bound. The original AutoPET L candidate
+failed its first real-data backward pass on RTX3090; the corrected geometry and
+validation-count fix are described below.
 
 | Dataset | Tier / native configuration | Shared patch | Stage channels | Total / inference-path parameters | Batch1 counted GFLOPs | Estimated training reserved GiB |
 |---|---|---|---|---:|---:|---:|
-| BraTS2021 | S / `3d_fullres_S` | 160×192×160 | 8/16/32/64 | 1.047M / 0.825M | 14.548 | 8.416 |
-| BraTS2021 | B / `3d_fullres_B` | 160×192×160 | 16/32/64/128 | 2.608M / 2.071M | 36.191 | 9.751 |
-| BraTS2021 | L / `3d_fullres_L` | 160×192×160 | 24/48/96/192 | 4.246M / 3.371M | 49.002 | 10.470 |
-| AutoPET-II | S / `3d_fullres_S` | 192×256×256 | 8/16/32/64/128 | 3.526M / 2.375M | 30.155 | 15.938 |
-| AutoPET-II | B / `3d_fullres_B` | 192×256×256 | 16/32/64/128/256 | 9.146M / 6.366M | 62.626 | 19.667 |
-| AutoPET-II | L / `3d_fullres_L` | 192×256×256 | 24/48/96/192/384 | 15.520M / 11.161M | 95.136 | 23.425 |
+| BraTS2021 | S / `3d_fullres_S` | 160×192×160 | 8/16/32/64 | 1.047M / 0.825M | 14.548 | 8.286 |
+| BraTS2021 | B / `3d_fullres_B` | 160×192×160 | 16/32/64/128 | 2.608M / 2.071M | 36.191 | 9.758 |
+| BraTS2021 | L / `3d_fullres_L` | 160×192×160 | 24/48/96/192 | 4.246M / 3.371M | 49.002 | 10.613 |
+| AutoPET-II | S / `3d_fullres_S` | 160×224×224 | 8/16/32/64 | 1.243M / 0.884M | 24.171 | 14.950 |
+| AutoPET-II | B / `3d_fullres_B` | 160×224×224 | 16/32/64/128 | 3.152M / 2.283M | 44.605 | 17.805 |
+| AutoPET-II | L / `3d_fullres_L` | 160×224×224 | 24/48/96/192 | 5.418M / 3.947M | 65.217 | 20.677 |
 
 All six use fold4, seed12345, 1000 epochs ×250 training updates, 50 online
 validation batches/epoch, foreground oversampling0.33, AdamW (LR1e-3,
 weight decay0.01), cosine decay to6e-6 and sample-wise Dice. CUDA training uses
-FP16 autocast/GradScaler, with FP32 Gram construction and loss reductions.
+FP16 autocast/GradScaler, with FP32 patch embedding, Gram construction, loss
+reductions and online Dice voxel counts.
 The objective combines native-scale segmentation heads (normalized 2^-level
 weights), reconstruction MSE averaged over modalities (weight0.5), and Gram
 transfer summed over modality teachers and averaged over batch (weight2).
 Increasing batch does not automatically scale LR or equalize sample exposure.
 
 ### Measured inference and its limits
+
+**Earlier implementation:** these timings precede the FP32 patch-embedding
+correction. AutoPET additionally used192×256×256 and five stages; current plans
+use160×224×224 and four stages. BraTS geometry is unchanged, but its embedding
+precision changed too. These are historical timings, not new-model benchmarks.
 
 RTX3090, PyTorch2.6/cu124, FP16, batch1, random weights and synthetic inputs.
 Forward/reverse candidate orders each used 5 warmups +10 single-patch calls,
@@ -77,10 +86,45 @@ fell from9.766s for the explicit historical96³ reference to0.480s (batch4-plann
 224×320×320) or0.704s (batch8-planned224×256×256), while equal-batch8 training
 updates rose from0.171s to0.951s. Those are different geometries from the shared
 S/B/L table. Larger context reduced tile count, but did not mean faster updates,
-faster patches, fewer parameters or proven accuracy gains. Full batch8 training
-fit for the new S/L configurations, convergence and real-case accuracy remain
-unverified. Do not silently lower only L's batch if it runs out of memory:
-regenerate shared geometry for the family and report the changed protocol.
+faster patches, fewer parameters or proven accuracy gains. Convergence and
+real-case accuracy remain unverified. Any further memory adjustment must preserve
+a shared geometry and batch for all tiers and report the changed protocol.
+
+### RTX3090 training correction (2026-09-09–10)
+
+The original AutoPET L192×256×256/batch8 configuration failed on the first
+backward allocation. A separate RTX3090 reproduction reached22.888GiB allocated
+and23.365GiB reserved before failing to allocate a cuBLAS handle. The next shared
+candidate192×224×256 reserved23.090GiB, exceeding its22.071GiB estimate and
+leaving too little runtime margin. The planner now reserves2GiB out of24GiB;
+its ordinary geometry search selects **160×224×224 for all AutoPET tiers**.
+BraTS remains160×192×160. AutoPET now has four stages, so parameters/checkpoint
+shapes change along with patch size. Preserve earlier failed-run outputs and use
+an empty results directory; do not resume their checkpoints with these plans.
+
+Real-data validation also exposed FP16 voxel-count overflow in the class-label
+online Dice path. Predicted one-hot masks now use FP32, matching nnUNet's native
+trainer. On RTX3090, a 524,288-voxel all-foreground check reproduced the old
+infinite count; the fixed native validation returned exactly 524,288 true positives
+and zero false positives/negatives. This changes online metrics/checkpoint
+selection, not the segmentation loss or region-label semantics.
+
+BraTS S also exposed an FP16 convolution-bias gradient overflow in
+`encoder.encoder_attn.patch_embeds.0.proj.bias`: twenty initial calls produced no
+optimizer update. With the same real batch and initialized weights, scale 0.0625
+still overflowed this parameter; substituting native LayerNorm did not fix it.
+Executing only patch embedding in FP32 yielded finite gradients even at scale 128
+(the bias gradient magnitude reached 7.197e8, beyond FP16's range). The remaining
+backbone retains autocast. This precision change preserves parameters, layer topology, loss weights and
+the production GradScaler initial value 65536.
+
+All six corrected configurations passed full-patch, batch8 real-data checks:
+20 native training calls using three augmented batches, online validation,
+return to training, fresh-process checkpoint resume with three effective updates,
+and one real whole-case prediction. Losses, effective gradients, validation counts
+and predictions were finite. See the [GPU results and exact scope](nnunet/README.md#full-patch-rtx3090-checks).
+All six also passed with the production CLI cuDNN benchmark setting. These are
+short runtime checks;1000-epoch convergence remains unverified.
 
 ### Six experiments
 
@@ -155,7 +199,8 @@ described above, with these automatically generated configurations:
 
 The auto tiers have five stages, starting at 8/16/24 channels and ending at
 128/256/384. Total parameters are 3,525,167 / 9,144,326 / 15,518,173;
-estimated training reserved memory is 13.196 / 16.316 / 19.464 GiB.
+estimated training reserved memory is 13.515 / 17.217 / 20.947 GiB
+with the FP32 input-embedding correction. Geometry and batch are unchanged.
 These estimates do not establish convergence or segmentation accuracy.
 
 To prepare and run the three auto configurations in the dedicated v2 environment:

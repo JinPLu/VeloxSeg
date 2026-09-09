@@ -268,13 +268,15 @@
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
+        "runtime_reserve_gib": 2,
+        "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
           0.9311187002204314,
           3.6222506796570846
         ],
         "training_batch_size": 8,
         "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 8.415799814926766,
+        "estimated_training_reserved_gib": 8.285935708336078,
         "parameters": 1046605
       },
       "patch_size": [
@@ -528,13 +530,15 @@
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
+        "runtime_reserve_gib": 2,
+        "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
           0.9311187002204314,
           3.6222506796570846
         ],
         "training_batch_size": 8,
         "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 9.751180032188499,
+        "estimated_training_reserved_gib": 9.757713818386373,
         "parameters": 2607950
       },
       "patch_size": [
@@ -788,13 +792,15 @@
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
+        "runtime_reserve_gib": 2,
+        "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
           0.9311187002204314,
           3.6222506796570846
         ],
         "training_batch_size": 8,
         "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 10.47021811556792,
+        "estimated_training_reserved_gib": 10.613149794554356,
         "parameters": 4245919
       },
       "patch_size": [

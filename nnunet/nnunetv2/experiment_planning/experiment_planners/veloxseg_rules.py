@@ -47,6 +47,13 @@ TRAINING_POLICY = {
 # Training target follows the upstream ResEnc-L 24 GB preset.
 TRAINING_MEMORY_TARGET_GIB = 24
 TRAINING_BATCH_SIZE = 8
+# AutoPET L at 192x256x256/batch8 estimated 23.425 GiB but OOMed on
+# a 23.69-GiB RTX3090 during backward (768-MiB allocation). The tensor
+# proxy is not a device-capacity bound: leave room for CUDA/runtime allocations
+# and its measured prediction error before accepting a family geometry. The
+# next 192x224x256 candidate reserved 23.09 GiB versus a 22.07-GiB estimate,
+# before accounting for non-PyTorch CUDA memory, so a 1-GiB reserve is too small.
+TRAINING_RUNTIME_RESERVE_GIB = 2
 
 
 # Compact-entry full-objective CUDA references, 2026-09-09. RTX 3090,
@@ -226,12 +233,12 @@ def smaller_patch(patch, spacing, median_shape):
 
 def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb, training_batch_size):
     """Plan one shared geometry that fits all three widths at the fixed batch."""
-    if memory_gb <= 0:
-        raise ValueError('gpu_memory_target_in_gb must be positive')
+    if memory_gb <= TRAINING_RUNTIME_RESERVE_GIB:
+        raise ValueError('gpu_memory_target_in_gb must exceed the runtime reserve')
     if not isinstance(training_batch_size, int) or training_batch_size < 2:
         raise ValueError('training_batch_size must be an integer >= 2')
     in_ch = modality_channels(dataset_json)
-    tensor_budget = memory_gb * 2 ** 30
+    tensor_budget = (memory_gb - TRAINING_RUNTIME_RESERVE_GIB) * 2 ** 30
     patch = initial_patch(spacing, median_shape)
     while True:
         architectures = {size: architecture_for_patch(patch, spacing, in_ch, size)
@@ -253,6 +260,8 @@ def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb, t
             'resources': {
                 'method': 'GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references',
                 'training_memory_target_gib': memory_gb,
+                'runtime_reserve_gib': TRAINING_RUNTIME_RESERVE_GIB,
+                'training_tensor_budget_gib': tensor_budget / 2 ** 30,
                 'memory_proxy_coefficients': MEMORY_PROXY_COEFFICIENTS.tolist(),
                 'training_batch_size': training_batch_size,
                 'inference_batch_size': 1,

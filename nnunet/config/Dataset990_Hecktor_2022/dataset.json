@@ -1,0 +1,22 @@
+{
+  "channel_names": {
+    "0": "PET",
+    "1": "CT"
+  },
+  "labels": {
+    "background": 0,
+    "tumor": 1
+  },
+  "numTraining": 418,
+  "file_ending": ".nii.gz",
+  "licence": "Whoever converted this dataset was lazy and didn't look it up!",
+  "converted_by": "Please enter your name, especially when sharing datasets with others in a common infrastructure!",
+  "name": "Hecktor_2022",
+  "reference": "https://hecktor.grand-challenge.org/",
+  "release": "release",
+  "description": "Hecktor_2022",
+  "veloxseg_modality_channels": [
+    1,
+    1
+  ]
+}

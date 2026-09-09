@@ -137,6 +137,53 @@ See [detailed rules, loss semantics and validation evidence](nnunet/README.md)
 and the [generated plans](nnunet/config/). Dataset conversion helpers and
 trained v2 weights are not yet provided.
 
+### Hecktor2022: five experiments
+
+Hecktor uses dataset ID **990** (`Dataset990_Hecktor_2022`). Its bundled
+metadata describes binary tumor segmentation, PET then CT, modality groups
+`[1,1]`, 418 training-pool cases and 106 held-out test cases. The supplied fold4
+uses 335 training / 83 validation cases. S/B/L use the same native protocol
+described above, with these automatically generated configurations:
+
+| Experiment | Patch in the input tensor's spatial order | Effective training batch | Epochs |
+|---|---|---:|---:|
+| Original standalone reference | 128×128×64 | 4 patches (2 cases ×2 crops) | 300 |
+| Fixed nnUNet reference | 64×128×128 | 4 patches | 1000 ×250 updates |
+| nnUNet auto S | 160×256×256 | 8 patches | 1000 ×250 updates |
+| nnUNet auto B | 160×256×256 | 8 patches | 1000 ×250 updates |
+| nnUNet auto L | 160×256×256 | 8 patches | 1000 ×250 updates |
+
+The auto tiers have five stages, starting at 8/16/24 channels and ending at
+128/256/384. Total parameters are 3,525,167 / 9,144,326 / 15,518,173;
+estimated training reserved memory is 13.196 / 16.316 / 19.464 GiB.
+These estimates do not establish convergence or segmentation accuracy.
+
+To prepare and run the three auto configurations in the dedicated v2 environment:
+
+```bash
+nnUNetv2_plan_and_preprocess -d 990 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
+cp nnunet/config/Dataset990_Hecktor_2022/splits_final.json "$nnUNet_preprocessed/Dataset990_Hecktor_2022/"
+CUDA_VISIBLE_DEVICES=0 bash nnunet/scripts/run_experiment.sh 990 S &
+CUDA_VISIBLE_DEVICES=1 bash nnunet/scripts/run_experiment.sh 990 B &
+CUDA_VISIBLE_DEVICES=2 bash nnunet/scripts/run_experiment.sh 990 L &
+wait
+```
+
+The two references use their existing pre-v2 code snapshots and separate Python
+environments; the stage-based v2 model must not replace the original standalone
+model or fixed nnUNet network. The standalone reference uses the existing
+normalized 524-case dataset, sorted 60/20/20 (314/105/105), CT then PET, binary
+nonzero labels, LR2.5e-4, 10-epoch warmup and the original cosine-restart schedule.
+The fixed nnUNet reference preserves batch Dice, FP32 forward/loss computation,
+LR1e-3 and its original auxiliary loss reductions. Auto S/B/L use sample-wise
+Dice, FP16 training and the v2 objective described above. All references use
+their explicit dropout0.1 configuration.
+
+Thus the five runs compare complete configurations: splits, preprocessing,
+axis order, model architecture, loss reductions and update budgets differ.
+They are not a single-variable framework ablation. The same case identifiers,
+channel order and binary labels must be used when reusing the bundled metadata.
+
 ## Overview
 
 <center>

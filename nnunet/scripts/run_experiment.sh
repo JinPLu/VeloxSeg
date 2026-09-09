@@ -8,7 +8,8 @@ size=$2
 case "$dataset_id" in
     137) dataset=Dataset137_BraTS2021 ;;
     221) dataset=Dataset221_AutoPETII_2023 ;;
-    *) echo "Expected dataset 137 or 221" >&2; exit 2 ;;
+    990) dataset=Dataset990_Hecktor_2022 ;;
+    *) echo "Expected dataset 137, 221 or 990" >&2; exit 2 ;;
 esac
 case "$size" in S|B|L) ;; *) exit 2 ;; esac
 configuration="3d_fullres_$size"

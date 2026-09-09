@@ -36,10 +36,11 @@ def training_lr_scheduler(config, optimizer):
             min_lr=config["train_scheduler"]["scheduler_args"]["min_lr"],
         )
         return scheduler
-    elif scheduler_type == "cosine_annealing":
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    elif scheduler_type == "cosine_annealing_wr":
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer,
-            T_max=config["train_scheduler"]["scheduler_args"]["epochs"],
+            T_0=config["train_scheduler"]["scheduler_args"]["t_0_epochs"],
+            T_mult=config["train_scheduler"]["scheduler_args"]["t_mult"],
             eta_min=config["train_scheduler"]["scheduler_args"]["min_lr"],
         )
         return scheduler

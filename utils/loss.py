@@ -52,7 +52,8 @@ class Loss(nn.Module):
         if self.model_name in ["VeloxSeg"]:
             layout = veloxseg_output_layout(len(output), self.num_modal)
             seg_start, seg_end = layout["seg"]
-            seg_loss = self.deep_seg_loss(output[seg_start:seg_end], labels)
+            # Each segmentation head contributes equally, without averaging.
+            seg_loss = sum(self.seg_loss(pred, labels) for pred in output[seg_start:seg_end])
             rc_loss =  self.rc_loss(output[layout["reconstruction"]], sr_labels)
             
             feature_loss = 0

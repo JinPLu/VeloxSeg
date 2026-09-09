@@ -75,9 +75,10 @@
         "warmup_epochs": 10
     },
     "train_scheduler": {
-        "scheduler_type": "cosine_annealing",
+        "scheduler_type": "cosine_annealing_wr",
         "scheduler_args": {
-            "epochs": 290,
+            "t_0_epochs": 300,
+            "t_mult": 1,
             "min_lr": 6e-06
         }
     },

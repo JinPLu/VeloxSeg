@@ -2,6 +2,7 @@
 
 ## News / Updates
 
+- **2026-09**: Corrected the open-source loss weighting and learning-rate schedule to align with the paper configurations.
 - **2026-01**: VeloxSeg is accepted by **ICLR 2026**!
 - **2026-01**: We are preparing an open-source **VeloxSeg v2** with **out-of-the-box nnUNet/nnUNetv2-style auto-configuration** (dataset conversion scripts + auto-generated plans + a `VeloxSegTrainer` inheriting from `nnUNetTrainer`). See the roadmap below.
 

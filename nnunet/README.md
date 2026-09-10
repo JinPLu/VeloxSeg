@@ -37,8 +37,10 @@ extensions. Keep the checkout in place and rerun `python nnunet/install.py` afte
 changing extension files. Use a dedicated environment for the two historical
 Hecktor reference implementations; their setup is described in the experiment guide.
 
-The trainer reports the first update and every 25 updates, in addition to native
-epoch logs. The experiment script disables stdout buffering, uses four native
+The trainer uses native nnU-Net epoch logs (training loss, validation loss,
+pseudo Dice and epoch time). Concurrent experiments share platform stdout;
+read each fold’s `training_log_*.txt` for an individual run. The experiment
+script disables stdout buffering, uses four native
 augmentation workers and one BLAS/OpenMP thread per process, and disables NumPy
 huge-page advice to avoid observed memory-compaction stalls on the training hosts.
 For direct CLI training, export these before starting Python:

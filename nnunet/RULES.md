@@ -75,8 +75,8 @@ A newer upstream per-case loader is a future dependency-upgrade candidate;
 its integration and gain have not been validated here. `torch.compile` remains
 disabled for these experiments: it requires its own compatibility/throughput
 measurement and cannot eliminate CPU queue waits. Patch, batch, augmentations,
-loss, LR and the 1000 × 250 update budget are unchanged. Progress is logged at
-the first update and every 25 updates so a slow epoch has observable progress.
+loss, LR and the 1000 × 250 update budget are unchanged. Logging follows native epoch summaries. Additional per-step logging was removed
+after user feedback: concurrent jobs interleaved those lines in platform stdout.
 
 ### S/B/L family (2026-09-09)
 

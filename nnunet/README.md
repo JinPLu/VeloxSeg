@@ -37,6 +37,18 @@ extensions. Keep the checkout in place and rerun `python nnunet/install.py` afte
 changing extension files. Use a dedicated environment for the two historical
 Hecktor reference implementations; their setup is described in the experiment guide.
 
-Training commands report at epoch boundaries. The experiment script disables
-Python stdout buffering for platform logs. For an already-running buffered job,
-follow `training_log_*.txt` in its fold output directory; it is written directly.
+The trainer reports the first update and every 25 updates, in addition to native
+epoch logs. The experiment script disables stdout buffering, uses four native
+augmentation workers and one BLAS/OpenMP thread per process, and disables NumPy
+huge-page advice to avoid observed memory-compaction stalls on the training hosts.
+For direct CLI training, export these before starting Python:
+
+```bash
+export PYTHONUNBUFFERED=1 NUMPY_MADVISE_HUGEPAGE=0
+export nnUNet_n_proc_DA=4 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+```
+
+Worker count is a host-dependent starting point, not a measured optimum. Existing
+processes require a restart to inherit these settings; preserve and resume their
+checkpoints. See [runtime choices](RULES.md#runtime-throughput) for the scope and
+evidence.

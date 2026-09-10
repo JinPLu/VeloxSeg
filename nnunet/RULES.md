@@ -30,6 +30,54 @@ while equal-batch8 training updates increase from0.171s to0.951s. Report this
 trade-off whenever presenting the new configuration's efficiency. Accuracy and
 real-case end-to-end timing remain unverified; batch4 versus8 is not yet settled.
 
+### Runtime throughput
+
+The training lifecycle remains nnU-Net 2.6.2: native sampling, augmentation,
+worker queues, pinned memory, epoch loop, checkpoint/resume and full-case
+validation. The subclass supplies the VeloxSeg network/objective, AdamW/cosine,
+and train/validation steps needed for the reconstruction targets and precision
+fixes. It does not implement a separate training loop. FP16 autocast/GradScaler,
+cuDNN benchmarking, nonblocking transfers, zero-grad with `set_to_none=True`,
+and unscale-before-gradient-clipping are already in use. FP32 embedding and
+loss/count reductions are retained for the observed overflow failures.
+
+On the September 10 training hosts, large CPU arrays triggered severe memory
+stalls despite free RAM. One native Blosc2 crop took 47.66 seconds on host 25;
+with `NUMPY_MADVISE_HUGEPAGE=0`, the same crop took 0.12 seconds (same shape and
+mean). This supports huge-page allocation/compaction as a contributor, rather
+than identifying shared-storage throughput alone as the cause. The setting is
+an official [NumPy process option](https://numpy.org/doc/stable/reference/global_state.html),
+read at import time; no system-wide kernel policy is changed.
+
+`run_experiment.sh` now defaults to that setting, four native augmentation
+workers and one OpenMP/BLAS thread per process. Both NumPy's option and worker
+count can be set explicitly for another host. Four is a tested starting point,
+not an optimum: an earlier eight-worker run reduced queue wait but raised
+compute time under contention. Worker count must fit all concurrent jobs.
+
+Fresh real batches, native augmentation, full planned patch and batch8, 24 train
+calls, excluding the first call from averages:
+
+| Host / model | Startup seconds | Mean data wait seconds | Mean compute seconds |
+|---|---:|---:|---:|
+| 25 / BraTS S | 18.26 | 3.974 | 0.387 |
+| 23 / Hecktor S | 50.92 | 4.097 | 0.848 |
+| 25 / AutoPET L | 38.18 | 3.185 | 0.862 |
+
+These short runs had finite losses and pinned batches. Compute includes transfer
+and synchronization. They do not establish whole-epoch speed, six-job sustained
+throughput, convergence or accuracy. Data wait still dominates, so this is a
+measured improvement in the diagnosed path, not a claim of complete optimization.
+
+Do not replace the native loader with the tested RAM-frame implementation or
+change preprocessing format: those trials did not resolve full-batch startup.
+A newer upstream per-case loader is a future dependency-upgrade candidate;
+its integration and gain have not been validated here. `torch.compile` remains
+disabled for these experiments: it requires its own compatibility/throughput
+measurement and cannot eliminate CPU queue waits. Patch, batch, augmentations,
+loss, LR and the 1000 × 250 update budget are unchanged. Progress is logged at
+the first update and every 25 updates so a slow epoch has observable progress.
+
 ### S/B/L family (2026-09-09)
 
 Use width multipliers0.5/1/1.5 around the established base16 B reference:

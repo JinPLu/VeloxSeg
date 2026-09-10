@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export PYTHONUNBUFFERED=1
+# Avoid costly huge-page compaction for large augmentation arrays on busy hosts.
+export NUMPY_MADVISE_HUGEPAGE="${NUMPY_MADVISE_HUGEPAGE:-0}"
+export nnUNet_n_proc_DA="${nnUNet_n_proc_DA:-4}"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 : "${nnUNet_raw:?Set nnUNet_raw}"
 : "${nnUNet_preprocessed:?Set nnUNet_preprocessed}"
 : "${nnUNet_results:?Set nnUNet_results}"

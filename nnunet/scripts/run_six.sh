@@ -5,7 +5,6 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 : "${nnUNet_preprocessed:?Set nnUNet_preprocessed}"
 : "${nnUNet_results:?Set nnUNet_results to a new experiment directory}"
 export nnUNet_compile=false
-export nnUNet_n_proc_DA=2 OMP_NUM_THREADS=4
 # Preserve the GPU assignment supplied by the platform, including UUIDs.
 if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
     IFS=, read -r -a gpus <<< "$CUDA_VISIBLE_DEVICES"

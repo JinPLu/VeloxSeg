@@ -15,6 +15,7 @@ from nnunetv2.training.loss.dice import get_tp_fp_fn_tn
 class nnVeloxSegTrainer(nnUNetTrainer):
     def __init__(self, plans, configuration, fold, dataset_json, device=torch.device('cuda')):
         super().__init__(plans, configuration, fold, dataset_json, device)
+        self._train_step_index = 0
         settings = self.configuration_manager.configuration['training']
         random.seed(settings['seed'])
         np.random.seed(settings['seed'])
@@ -57,6 +58,10 @@ class nnVeloxSegTrainer(nnUNetTrainer):
             optimizer, self.num_epochs, eta_min=settings['minimum_lr'])
         return optimizer, scheduler
 
+    def on_train_epoch_start(self):
+        super().on_train_epoch_start()
+        self._train_step_index = 0
+
     def train_step(self, batch):
         data = batch['data'].to(self.device, non_blocking=True)
         target = batch['target'].to(self.device, non_blocking=True)
@@ -74,7 +79,13 @@ class nnVeloxSegTrainer(nnUNetTrainer):
             loss.backward()
             nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.optimizer.step()
-        return {'loss': loss.detach().cpu().numpy()}
+        result = {'loss': loss.detach().cpu().numpy()}
+        self._train_step_index += 1
+        if self._train_step_index == 1 or self._train_step_index % 25 == 0:
+            self.print_to_log_file(
+                f'Train step {self._train_step_index}/{self.num_iterations_per_epoch}, '
+                f'loss {float(result["loss"]):.4f}')
+        return result
 
     def validation_step(self, batch):
         data = batch['data'].to(self.device, non_blocking=True)

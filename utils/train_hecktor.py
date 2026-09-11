@@ -142,11 +142,12 @@ def run_train(args, train_config, model_config):
                         neg=1,
                         num_samples=2,
                     ),
-                RandRotated(keys=["img","img_ct","seg"],
-                        range_z=rotation_range_from_degrees(15),
-                        mode=image_label_modes(2),
-                        prob=0.5,
-                    ),
+                # If re-enabled, use 15 degrees, not 15 radians.
+                # RandRotated(keys=["img","img_ct","seg"],
+                #         range_z=rotation_range_from_degrees(15),
+                #         mode=image_label_modes(2),
+                #         prob=0.5,
+                #     ),
                 ToTensord(keys=["img", "img_ct"]),
             ]
         )

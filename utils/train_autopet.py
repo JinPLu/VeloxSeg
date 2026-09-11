@@ -21,6 +21,7 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     ToTensord,
     EnsureChannelFirstd,
+    RandRotated,
 )
 import time
 from torch.utils.tensorboard import SummaryWriter
@@ -29,6 +30,8 @@ from utils.get_logger import get_logger
 from .loss import Loss
 from .runtime import (
     get_torch_device,
+    image_label_modes,
+    rotation_range_from_degrees,
     set_cuda_device_if_available,
     validate_file_groups,
     validate_selected_modal,
@@ -139,6 +142,12 @@ def run_train(args, train_config, model_config):
                         neg=1,
                         num_samples=2,
                     ),
+                # If re-enabled, use 15 degrees, not 15 radians.
+                # RandRotated(keys=['img', 'img_ct', 'seg'],
+                #         range_z=rotation_range_from_degrees(15),
+                #         mode=image_label_modes(2),
+                #         prob=0.5,
+                #     ),
                 ToTensord(keys=["img", "img_ct"]),
             ]
         )

@@ -30,7 +30,7 @@ if [[ "$dataset_id" == 137 ]]; then
 fi
 nnUNetv2_predict -i "$nnUNet_raw/$dataset/imagesTs" -o "$output/prediction" \
     -d "$dataset_id" -c "$configuration" -f "$fold" -tr nnVeloxSegTrainer \
-    -p nnVeloxSegPlans -chk checkpoint_final.pth -npp 2 -nps 2
+    -p "$plans" -chk checkpoint_final.pth -npp 2 -nps 2
 nnUNetv2_evaluate_folder "$nnUNet_raw/$dataset/labelsTs" "$output/prediction" \
     -djfile "$nnUNet_preprocessed/$dataset/dataset.json" \
     -pfile "$nnUNet_preprocessed/$dataset/$plans.json" \

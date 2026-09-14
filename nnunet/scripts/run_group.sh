@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a list of nnVeloxSeg experiments on the GPUs visible to one cluster job.
-# Task file: one "dataset_id configuration fold plans_identifier" per line;
-# blank lines and lines starting with # are ignored. Each task gets one GPU;
+# Task file: one "dataset_id configuration fold plans_identifier [nnUNetv2_train options]"
+# per line, e.g. append --c to resume; blank lines and lines starting with # are ignored. Each task gets one GPU;
 # tasks beyond the GPU count start as soon as an earlier task frees its GPU.
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -37,10 +37,10 @@ status=0
 while (( next < ${#tasks[@]} || ${#running[@]} > 0 )); do
     for slot in "${!gpus[@]}"; do
         if [[ -z "${running[$slot]:-}" ]] && (( next < ${#tasks[@]} )); then
-            read -r dataset configuration fold plans <<< "${tasks[$next]}"
+            read -r dataset configuration fold plans options <<< "${tasks[$next]}"
             name="${dataset}_${plans}_${configuration}_fold${fold}"
             CUDA_VISIBLE_DEVICES="${gpus[$slot]}" bash "$script_dir/run_experiment.sh" \
-                "$dataset" "$configuration" "$fold" "$plans" > "$log_dir/$name.log" 2>&1 &
+                "$dataset" "$configuration" "$fold" "$plans" ${options:-} >> "$log_dir/$name.log" 2>&1 &
             running[$slot]=$!
             echo "$(date '+%F %T') start $name on ${gpus[$slot]} pid=${running[$slot]}"
             next=$((next + 1))

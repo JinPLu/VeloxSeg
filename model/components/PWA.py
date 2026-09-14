@@ -53,32 +53,30 @@ class Paired_Windows_Attention(nn.Module):
             self.dropout_weight = nn.Dropout(dropout)
     
     def get_window_sizes(self):
-        input_size = torch.tensor(self.input_size)
-        min_big_window_size = torch.tensor(self.min_big_window_size)
-        min_small_window_size = torch.tensor(self.min_small_window_size)
-        
-        ratios = input_size // min_big_window_size
-        if ((input_size % min_big_window_size) != 0).any() or not (ratios == ratios[0]).all():
-            raise ValueError('PWA windows must tile all axes with a common scale ratio')
-        ratio = int(ratios[0])
-        if ratio < 1 or ratio & (ratio - 1) or self.scale_factor != 2:
+        """Expand the paired windows per axis until every axis covers the input.
+
+        Axis a tiles the input with ratio 2**q_a. Scale k doubles each axis at
+        most q_a times, so every scale keeps the token grid big/small of the
+        smallest window and the last scale is the whole input.
+        """
+        if self.scale_factor != 2:
             raise ValueError('PWA requires a power-of-two ratio to global coverage')
-        if ((min_big_window_size % min_small_window_size) != 0).any():
-            raise ValueError('PWA pooling windows must divide the attention windows')
+        exponents = []
+        for n, big, small in zip(self.input_size, self.min_big_window_size, self.min_small_window_size):
+            ratio, remainder = divmod(int(n), int(big))
+            if remainder or ratio < 1 or ratio & (ratio - 1):
+                raise ValueError('PWA windows must tile every axis with a power-of-two ratio')
+            if big % small:
+                raise ValueError('PWA pooling windows must divide the attention windows')
+            exponents.append(ratio.bit_length() - 1)
 
         bw_sizes = []
         sw_sizes = []
-        
-        bw = min_big_window_size
-        sw = min_small_window_size
-        
-        while (bw <= input_size).all():
-            bw_sizes.append(bw.tolist())
-            sw_sizes.append(sw.tolist())
+        for scale in range(max(exponents) + 1):
+            growth = [2 ** min(scale, q) for q in exponents]
+            bw_sizes.append([big * g for big, g in zip(self.min_big_window_size, growth)])
+            sw_sizes.append([small * g for small, g in zip(self.min_small_window_size, growth)])
 
-            bw = bw * self.scale_factor
-            sw = sw * self.scale_factor
-            
         channels_need = len(bw_sizes) * self.num_heads * self.min_dim_head
         channels_qk = channels_need
         channels_v = ceil(self.channels_v / channels_need) * channels_need

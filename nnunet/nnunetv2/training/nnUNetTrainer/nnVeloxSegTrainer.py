@@ -1,15 +1,22 @@
 """nnU-Net lifecycle integration for the public VeloxSeg model."""
 import random
+from math import ceil
 
 import numpy as np
 import torch
 from torch import nn
 
 from model.VeloxSeg import VeloxSeg
+from model.components.attention_utils import LayerNorm, PositionalEmbedding
 from model.loss import VeloxSegLoss
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import segmentation_loss
 from nnunetv2.training.loss.dice import get_tp_fp_fn_tn
+
+# Normalization modules whose affine parameters AdamW leaves undecayed when
+# decay_exclusions is set: VeloxSeg's channels-first LayerNorm plus every torch
+# norm reachable through model.components.common_function.get_norm.
+NORM_MODULES = (LayerNorm, nn.LayerNorm, nn.GroupNorm, nn.modules.batchnorm._NormBase)
 
 
 class nnVeloxSegTrainer(nnUNetTrainer):
@@ -51,12 +58,26 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         settings = self.configuration_manager.configuration['training']
         self.initial_lr = settings['initial_lr']
         self.weight_decay = settings['weight_decay']
-        warmup_epochs = settings['warmup_epochs']
         minimum_lr = settings['minimum_lr']
+        warmup_epochs = ceil(settings['warmup_updates'] / self.num_iterations_per_epoch)
         if not 0 <= warmup_epochs < self.num_epochs:
-            raise ValueError('warmup_epochs must be in [0, num_epochs)')
-        optimizer = torch.optim.AdamW(self.network.parameters(), lr=self.initial_lr,
-                                      weight_decay=self.weight_decay)
+            raise ValueError('warmup_updates must resolve to warmup epochs in [0, num_epochs)')
+        self.warmup_epochs = warmup_epochs
+        if settings['decay_exclusions']:
+            excluded, decayed = [], []
+            for module in self.network.modules():
+                for name, parameter in module.named_parameters(recurse=False):
+                    if (isinstance(module, NORM_MODULES) or name == 'bias'
+                            or (isinstance(module, PositionalEmbedding)
+                                and name == 'relative_position_bias_table')):
+                        excluded.append(parameter)
+                    else:
+                        decayed.append(parameter)
+            groups = [{'params': decayed, 'weight_decay': self.weight_decay},
+                      {'params': excluded, 'weight_decay': 0.0}]
+        else:
+            groups = [{'params': list(self.network.parameters()), 'weight_decay': self.weight_decay}]
+        optimizer = torch.optim.AdamW(groups, lr=self.initial_lr)
         minimum_lr_factor = minimum_lr / self.initial_lr
 
         def lr_lambda(epoch):
@@ -73,6 +94,24 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         return optimizer, scheduler
 
+    def on_train_start(self):
+        super().on_train_start()
+        batch = self.configuration_manager.batch_size
+        oversample = self.configuration_manager.configuration['training']['oversample_foreground_percent']
+        forced = batch - round(batch * (1 - oversample))
+        self.print_to_log_file(f'Forced foreground samples: {forced}/{batch} = {forced / batch:.4f} '
+                               f'(oversample_foreground_percent={oversample})')
+        self.print_to_log_file(f'Warmup epochs: {self.warmup_epochs}')
+        for index, group in enumerate(self.optimizer.param_groups):
+            self.print_to_log_file(
+                f"Param group {index}: weight_decay={group['weight_decay']}, tensors={len(group['params'])}, "
+                f"elements={sum(parameter.numel() for parameter in group['params'])}")
+
+    def on_train_epoch_start(self):
+        super().on_train_epoch_start()
+        self.applied_optimizer_steps = 0
+        self.skipped_optimizer_steps = 0
+
     def train_step(self, batch):
         data = batch['data'].to(self.device, non_blocking=True)
         target = batch['target'].to(self.device, non_blocking=True)
@@ -84,13 +123,24 @@ class nnVeloxSegTrainer(nnUNetTrainer):
             self.grad_scaler.scale(loss).backward()
             self.grad_scaler.unscale_(self.optimizer)
             nn.utils.clip_grad_norm_(self.network.parameters(), 12)
+            scale = self.grad_scaler.get_scale()
             self.grad_scaler.step(self.optimizer)
             self.grad_scaler.update()
+            # GradScaler lowers the scale exactly when it skipped the step for inf/NaN gradients.
+            skipped = self.grad_scaler.get_scale() < scale
         else:
             loss.backward()
             nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.optimizer.step()
+            skipped = False
+        self.skipped_optimizer_steps += skipped
+        self.applied_optimizer_steps += not skipped
         return {'loss': loss.detach().cpu().numpy()}
+
+    def on_train_epoch_end(self, train_outputs):
+        super().on_train_epoch_end(train_outputs)
+        self.print_to_log_file(f'Optimizer steps applied: {self.applied_optimizer_steps}, '
+                               f'skipped by GradScaler: {self.skipped_optimizer_steps}')
 
     def validation_step(self, batch):
         data = batch['data'].to(self.device, non_blocking=True)

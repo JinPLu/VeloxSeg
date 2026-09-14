@@ -11,7 +11,7 @@ from nnunetv2.experiment_planning.experiment_planners.veloxseg_planner import (
     FingerprintGeometry, VeloxSegPlanner, build_plans, candidate_manifest,
 )
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import (
-    PATCH_POLICY, TRAINING_MEMORY_TARGET_GIB, architecture_for_patch, estimate_training_tensors, select_patch,
+    PATCH_POLICY, TRAINING_MEMORY_TARGET_GIB, architecture_for_patch, estimate_training_tensors, patch_key, select_patch,
 )
 from nnunetv2.utilities.label_handling.label_handling import LabelManager
 
@@ -36,7 +36,7 @@ def bundled_configuration(dataset, size):
 def volume_profile(manifest):
     """Synthetic B profile whose memory and latency grow with crop volume."""
     rows = {row['key']: {'B': {'peak_allocated_mib': prod(row['patch']) / 2 ** 14,
-                               'median_ms': prod(row['patch']) / 2 ** 18,
+                               'median_ms': prod(row['patch']) / 2 ** 18, 'parameters': 1,
                                'architecture': row['architectures']['B']['arch_kwargs']}}
             for row in manifest['candidates'] if row['trainable']}
     return {'gpu': 'synthetic', 'torch': 'synthetic', 'rows': rows}
@@ -96,6 +96,20 @@ class BundledDatasets(unittest.TestCase):
         profile['rows']['160x256x256']['B']['architecture'] = {'input_size': [160, 256, 256], 'stages': []}
         with self.assertRaisesRegex(ValueError, 'other B architectures for .*160x256x256'):
             select_patch(manifest['candidates'], profile)
+
+    def test_axis_permuted_crops_do_not_depend_on_latency_noise(self):
+        stages = [{'stride': [2, 2, 2]}]
+        candidates = [{'patch': patch, 'trainable': True,
+                       'architectures': {'B': {'arch_kwargs': {'input_size': patch, 'stages': stages}}}}
+                      for patch in ([8, 16, 12], [8, 12, 16])]
+        for first_latency, second_latency in ((20.0, 10.0), (10.0, 20.0)):
+            profile = {'gpu': 'synthetic', 'torch': 'synthetic', 'rows': {
+                patch_key(row['patch']): {'B': {'peak_allocated_mib': 100.0, 'median_ms': latency, 'parameters': 7,
+                                                'architecture': row['architectures']['B']['arch_kwargs']}}
+                for row, latency in zip(candidates, (first_latency, second_latency))}}
+            selected, table = select_patch(candidates, profile)
+            self.assertEqual(selected['patch'], [8, 16, 12])
+            self.assertEqual([row['pareto'] for row in table], [True, False])
 
     def test_missing_profile_row_names_patches(self):
         manifest = self.manifests[HECKTOR]

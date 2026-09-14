@@ -409,7 +409,8 @@ def patch_key(patch):
 def select_patch(candidates, profile):
     """Choose a trainable crop from measured B batch-1 memory (M1) and latency (t1).
 
-    Drop crops dominated on (coverage >=, M1 <=, t1 <=, one strict). Among the
+    Crops that are the same model up to an axis permutation count once. Drop
+    crops dominated on (coverage >=, M1 <=, t1 <=, one strict). Among the
     survivors covering at least PATCH_POLICY['coverage_fraction'] of the largest
     trainable crop, take the least M1, then lower t1, then larger coverage.
     Returns the selected candidate and the candidate table.
@@ -430,12 +431,21 @@ def select_patch(candidates, profile):
     for key in trainable:
         row = profile['rows'][key]['B']
         costs[key] = (prod(int(n) for n in key.split('x')), row['peak_allocated_mib'], row['median_ms'])
+    # Crops with equal volume, parameters and measured memory are one model up to
+    # an axis permutation. Latency of separate runs differs by noise, so keep the
+    # first such crop in generation order (nnUNet's reduction order) instead.
+    order = {patch_key(row['patch']): index for index, row in enumerate(candidates)}
+    distinct = {}
+    for key in sorted(trainable, key=order.get):
+        distinct.setdefault((costs[key][0], profile['rows'][key]['B']['parameters'], costs[key][1]), key)
+    distinct = sorted(distinct.values(), key=order.get)
 
-    def dominated(cost):
+    def dominated(key):
+        cost = costs[key]
         return any(other != cost and other[0] >= cost[0] and other[1] <= cost[1] and other[2] <= cost[2]
-                   for other in costs.values())
+                   for other in (costs[k] for k in distinct))
 
-    pareto = [key for key in trainable if not dominated(costs[key])]
+    pareto = [key for key in distinct if not dominated(key)]
     largest = max(cost[0] for cost in costs.values())
     eligible = [key for key in pareto if costs[key][0] / largest >= PATCH_POLICY['coverage_fraction']]
     selected = min(eligible, key=lambda key: (costs[key][1], costs[key][2], -costs[key][0]))

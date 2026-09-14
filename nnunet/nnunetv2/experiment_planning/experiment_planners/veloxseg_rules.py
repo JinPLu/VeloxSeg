@@ -1,14 +1,15 @@
 """One dataset-independent VeloxSeg planning policy.
 
-Geometry methods come from nnUNet 2.6.2. Model/optimization choices below are
-explicit starting priors, not claims of optimality or GPU peak measurements.
+Geometry comes from nnUNet 2.8.1; the shared model and optimization blueprint
+comes from the VeloxSeg paper and released reference configuration.
 """
-from math import ceil, log2, prod
+from math import log2, prod
 
 import numpy as np
 import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
 from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.utils.flop_counter import FlopCounterMode
 
 from model.VeloxSeg import VeloxSeg
 from model.loss import VeloxSegLoss
@@ -17,36 +18,55 @@ from nnunetv2.training.loss.compound_losses import DC_and_BCE_loss, DC_and_CE_lo
 from nnunetv2.training.loss.dice import MemoryEfficientSoftDiceLoss
 
 
+# Paper Appendix R: S removes convolution branches; L increases block depth.
 MODEL_CAPACITIES = {
-    'S': {'base_channels': 8, 'maximum_channels': 160},
-    'B': {'base_channels': 16, 'maximum_channels': 320},
-    'L': {'base_channels': 24, 'maximum_channels': 480},
+    'S': {'kernels': [3], 'conv_depth': 1, 'attn_depth': 1},
+    'B': {'kernels': [1, 3, 5], 'conv_depth': 1, 'attn_depth': 1},
+    'L': {'kernels': [1, 3, 5], 'conv_depth': 2, 'attn_depth': 2},
 }
 MODEL_POLICY = {
+    'base_channels': 16,
+    'maximum_channels': 128,
     'stem_pooling_transitions': 2,
-    'minimum_feature_edge': 4,
-    'conv_depth': 1,
-    'attn_depth': 1,
-    'expansion': 2,
-    'channels_per_attention_head': 32,
-    'minimum_group_width': 4,
-    'dropout': 0.0,
+    # The reference 96^3 model ends at 3^3 after its compact entry and 3 transitions.
+    'minimum_feature_edge': 3,
+    'dropout': 0.1,
 }
+# Independent JLC and PWA settings from the released reference model. Later
+# stages reuse the last row.
+STAGE_BLUEPRINT = (
+    {'group_width': 4, 'conv_expansion': 3, 'attn_expansion': 3, 'heads': 1, 'head_dim': 4},
+    {'group_width': 8, 'conv_expansion': 3, 'attn_expansion': 3, 'heads': 2, 'head_dim': 8},
+    {'group_width': 8, 'conv_expansion': 2, 'attn_expansion': 2, 'heads': 2, 'head_dim': 8},
+    {'group_width': 16, 'conv_expansion': 2, 'attn_expansion': 2, 'heads': 4, 'head_dim': 16},
+)
+# Per-branch tokens of the smallest paired big window in the released 96^3
+# model (3^3, 6^3, 3^3); its last stage attends over the whole feature map.
+# Further intermediate stages reuse the last value, a transfer hypothesis.
+PWA_REFERENCE_TOKENS = (27, 216, 27)
+# Paper optimizer/300-epoch recipe, with the released 10-epoch warmup.
 TRAINING_POLICY = {
-    'initial_lr': 1e-3,
+    'initial_lr': 2.5e-4,
     'weight_decay': 1e-2,
     'minimum_lr': 6e-6,
-    'num_epochs': 1000,
-    'num_iterations_per_epoch': 250,
+    'warmup_epochs': 10,
+    'num_epochs': 300,
     'num_val_iterations_per_epoch': 50,
     'oversample_foreground_percent': 0.33,
     'batch_dice': False,
     'seed': 12345,
 }
-# Training capacity is independent of batch-1 inference efficiency.
-# Training target follows the upstream ResEnc-L 24 GB preset.
+# nnUNet: at least batch 2, spare memory raises the batch, and one batch covers
+# at most 5% of the dataset voxels. Batches are powers of two. Epochs carry the
+# learning-rate schedule; iterations per epoch keep the recipe's crops per
+# epoch (250 iterations at the paper's batch 4) without rescaling the LR.
+BATCH_POLICY = {
+    'minimum_batch_size': 2,
+    'max_dataset_covered': 0.05,
+    'recipe_batch_size': 4,
+    'recipe_iterations_per_epoch': 250,
+}
 TRAINING_MEMORY_TARGET_GIB = 24
-TRAINING_BATCH_SIZE = 8
 # AutoPET L at 192x256x256/batch8 estimated 23.425 GiB but OOMed on
 # a 23.69-GiB RTX3090 during backward (768-MiB allocation). The tensor
 # proxy is not a device-capacity bound: leave room for CUDA/runtime allocations
@@ -107,41 +127,49 @@ def geometry(patch, spacing):
             kernels[merged:], alignment)
 
 
+def attention_window(shape, index, final):
+    """Smallest paired big window whose token count is nearest the reference.
+
+    PWA windows tile the feature grid with one power-of-two ratio up to global
+    coverage. Anchoring local tokens, rather than the feature/window ratio,
+    keeps attention size from growing with the crop; a larger feature map adds
+    scales instead. Each axis keeps at least two positions per window.
+    """
+    if final:
+        return list(shape)
+    reference = PWA_REFERENCE_TOKENS[min(index, len(PWA_REFERENCE_TOKENS) - 1)]
+    ratios = [1]
+    while all(n % (2 * ratios[-1]) == 0 and n // (2 * ratios[-1]) >= 2 for n in shape):
+        ratios.append(2 * ratios[-1])
+    # Equal multiplicative distance treats twice and half the reference alike;
+    # ascending ratios keep the larger window on an exact tie.
+    ratio = min(ratios, key=lambda r: abs(log2(prod(shape) / (r ** 3 * reference))))
+    return [n // ratio for n in shape]
+
+
 def architecture_for_patch(patch, spacing, in_ch, model_size):
     capacity = MODEL_CAPACITIES[model_size]
     patch, strides, kernels, _ = geometry(patch, spacing)
     shape = list(patch)
-    compression = 1
     stages = []
     for index, (stride, kernel) in enumerate(zip(strides, kernels)):
         shape = [n // step for n, step in zip(shape, stride)]
-        compression *= prod(stride)
-        channels = min(capacity['maximum_channels'], capacity['base_channels'] * 2 ** index)
-        # JL-inspired logarithmic growth; round the lower bound to a legal
-        # channel divisor, without widening the backbone for attention padding.
-        lower_bound = max(MODEL_POLICY['minimum_group_width'], ceil(log2(sum(in_ch) * compression + 1)))
-        group_width = next(value for value in divisors(channels) if value >= min(channels, lower_bound))
-        scale = 1
-        while all(n % (2 * scale) == 0 and n // (2 * scale) >= MODEL_POLICY['minimum_feature_edge']
-                  for n in shape):
-            scale *= 2
-        big = [n // scale for n in shape]
-        # Keep fine samples whenever possible. An axis uses pooling only when
-        # the exact global tiling leaves more than a bottleneck-sized token grid.
-        token_edge_limit = 2 * MODEL_POLICY['minimum_feature_edge'] - 1
-        small = [next(step for step in divisors(n) if n // step <= token_edge_limit) for n in big]
+        blueprint = STAGE_BLUEPRINT[min(index, len(STAGE_BLUEPRINT) - 1)]
+        channels = min(MODEL_POLICY['maximum_channels'], MODEL_POLICY['base_channels'] * 2 ** index)
+        group_width = max(value for value in divisors(channels) if value <= blueprint['group_width'])
         parallel_kernels = []
-        for size in (1, 3, 5):
+        for size in capacity['kernels']:
             item = [1 if k == 1 else size for k in kernel]
             if item not in parallel_kernels:
                 parallel_kernels.append(item)
         stages.append({
             'stride': list(stride), 'channels': channels, 'kernels': parallel_kernels,
-            'conv_depth': MODEL_POLICY['conv_depth'],
-            'attn_depth': MODEL_POLICY['attn_depth'],
-            'group_width': group_width, 'expansion': MODEL_POLICY['expansion'],
-            'heads': max(1, channels // MODEL_POLICY['channels_per_attention_head']),
-            'head_dim': group_width, 'big_window': big, 'small_window': small,
+            'conv_depth': capacity['conv_depth'], 'attn_depth': capacity['attn_depth'],
+            'group_width': group_width,
+            'conv_expansion': blueprint['conv_expansion'], 'attn_expansion': blueprint['attn_expansion'],
+            'heads': blueprint['heads'], 'head_dim': blueprint['head_dim'],
+            'big_window': attention_window(shape, index, index == len(strides) - 1),
+            'small_window': [1, 1, 1],
         })
     return {
         'network_class_name': 'model.VeloxSeg.VeloxSeg',
@@ -194,8 +222,16 @@ def estimate_training_tensors(architecture, label_manager, batch_size):
                              dtype=torch.float32 if label_manager.has_regions else torch.long)
         objective = VeloxSegLoss(segmentation_loss(label_manager), kwargs['in_ch'])
         with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor), \
+                FlopCounterMode(display=False) as counter, \
                 torch.autocast('cpu', dtype=torch.float16):
-            objective(network(x), target, x)
+            loss = objective(network(x), target, x)
+            loss.backward()
+        training_flops = counter.get_total_flops()
+        network.eval()
+        with FlopCounterMode(display=False) as counter, torch.no_grad(), \
+                torch.autocast('cpu', dtype=torch.float16):
+            network(x)
+        inference_flops = counter.get_total_flops()
     activation_bytes = sum(saved.values())
     fixed_bytes = 4 * parameter_bytes + persistent
     output_bytes = (batch_size * prod(kwargs['input_size']) *
@@ -203,7 +239,8 @@ def estimate_training_tensors(architecture, label_manager, batch_size):
     estimated = fixed_bytes + float(MEMORY_PROXY_COEFFICIENTS @ [activation_bytes, output_bytes])
     return {'saved_activation_bytes': activation_bytes, 'fixed_bytes': fixed_bytes,
             'full_resolution_output_bytes': output_bytes,
-            'estimated_reserved_bytes': estimated, 'parameters': parameter_bytes // 4}
+            'estimated_reserved_bytes': estimated, 'parameters': parameter_bytes // 4,
+            'training_flops': training_flops, 'inference_flops': inference_flops}
 
 
 def initial_patch(spacing, median_shape):
@@ -214,8 +251,8 @@ def initial_patch(spacing, median_shape):
 
 
 def smaller_patch(patch, spacing, median_shape):
-    # Recompute alignment before reducing, as upstream does (256 -> 224 is legal).
-    axes = sorted(range(3), key=lambda index: patch[index] / median_shape[index], reverse=True)
+    # Upstream relative-coverage axis order and recomputed stride divisibility.
+    axes = np.argsort(np.asarray(patch) / np.asarray(median_shape))[::-1]
     _, _, _, alignment = geometry(patch, spacing)
     for axis in axes:
         tentative = list(patch)
@@ -231,42 +268,63 @@ def smaller_patch(patch, spacing, median_shape):
     raise ValueError('The training tensor budget cannot fit the minimum legal geometry')
 
 
-def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb, training_batch_size):
-    """Plan one shared geometry that fits all three widths at the fixed batch."""
+def family_memory(architectures, label_manager, batch_size):
+    inventories = {size: estimate_training_tensors(architecture, label_manager, batch_size)
+                   for size, architecture in architectures.items()}
+    return inventories, max(row['estimated_reserved_bytes'] for row in inventories.values())
+
+
+def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb):
+    """Plan shared S/B/L geometry from nnUNet data rules; memory sets the batch.
+
+    The crop is nnUNet's initial physical patch and shrinks only when the
+    largest member cannot train at the minimum batch. Memory the model saves
+    therefore becomes batch size, never a larger crop or a deeper network.
+    """
     if memory_gb <= TRAINING_RUNTIME_RESERVE_GIB:
         raise ValueError('gpu_memory_target_in_gb must exceed the runtime reserve')
-    if not isinstance(training_batch_size, int) or training_batch_size < 2:
-        raise ValueError('training_batch_size must be an integer >= 2')
     in_ch = modality_channels(dataset_json)
     tensor_budget = (memory_gb - TRAINING_RUNTIME_RESERVE_GIB) * 2 ** 30
+    batch = BATCH_POLICY['minimum_batch_size']
     patch = initial_patch(spacing, median_shape)
     while True:
         architectures = {size: architecture_for_patch(patch, spacing, in_ch, size)
                          for size in MODEL_CAPACITIES}
         patch = architectures['L']['arch_kwargs']['input_size']
-        inventories = {size: estimate_training_tensors(architecture, label_manager, training_batch_size)
-                       for size, architecture in architectures.items()}
-        largest_cost = max(row['estimated_reserved_bytes'] for row in inventories.values())
-        print(f'VeloxSeg S/B/L batch{training_batch_size} candidate {patch}: '
-              f'Maximum reference-based memory estimate {largest_cost / 2**30:.3f} GiB', flush=True)
+        inventories, largest_cost = family_memory(architectures, label_manager, batch)
+        print(f'VeloxSeg S/B/L batch{batch} candidate {patch}: '
+              f'maximum estimated memory {largest_cost / 2**30:.3f} GiB', flush=True)
         if largest_cost <= tensor_budget:
             break
         patch = smaller_patch(patch, spacing, median_shape)
+    dataset_voxels = float(np.prod(median_shape, dtype=np.float64)) * dataset_json['numTraining']
+    coverage_cap = round(dataset_voxels * BATCH_POLICY['max_dataset_covered'] / prod(patch))
+    while 2 * batch <= coverage_cap:
+        candidate, largest_cost = family_memory(architectures, label_manager, 2 * batch)
+        if largest_cost > tensor_budget:
+            break
+        batch, inventories = 2 * batch, candidate
+    iterations = round(BATCH_POLICY['recipe_iterations_per_epoch'] * BATCH_POLICY['recipe_batch_size'] / batch)
+    # nnUNet forces foreground crops only into the last batch slots.
+    forced = batch - round(batch * (1 - TRAINING_POLICY['oversample_foreground_percent']))
     return {
         size: {
             'architecture': architecture,
-            'batch_size': training_batch_size,
+            'batch_size': batch,
             'model_size': size,
+            'training': {**TRAINING_POLICY, 'num_iterations_per_epoch': iterations},
             'resources': {
                 'method': 'GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references',
                 'training_memory_target_gib': memory_gb,
                 'runtime_reserve_gib': TRAINING_RUNTIME_RESERVE_GIB,
                 'training_tensor_budget_gib': tensor_budget / 2 ** 30,
                 'memory_proxy_coefficients': MEMORY_PROXY_COEFFICIENTS.tolist(),
-                'training_batch_size': training_batch_size,
-                'inference_batch_size': 1,
+                'batch_coverage_cap': coverage_cap,
+                'forced_foreground_fraction': forced / batch,
                 'estimated_training_reserved_gib': inventories[size]['estimated_reserved_bytes'] / 2 ** 30,
                 'parameters': inventories[size]['parameters'],
+                'training_flops_per_batch': inventories[size]['training_flops'],
+                'inference_flops_per_patch': inventories[size]['inference_flops'] / batch,
             },
         }
         for size, architecture in architectures.items()

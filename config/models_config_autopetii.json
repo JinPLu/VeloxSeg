@@ -268,7 +268,8 @@
                     ]
                 ],
                 "group_width": 4,
-                "expansion": 3,
+                "conv_expansion": 3,
+                "attn_expansion": 3,
                 "heads": 1,
                 "head_dim": 4,
                 "big_window": [
@@ -309,7 +310,8 @@
                     ]
                 ],
                 "group_width": 8,
-                "expansion": 3,
+                "conv_expansion": 3,
+                "attn_expansion": 3,
                 "heads": 2,
                 "head_dim": 8,
                 "big_window": [
@@ -350,7 +352,8 @@
                     ]
                 ],
                 "group_width": 8,
-                "expansion": 2,
+                "conv_expansion": 2,
+                "attn_expansion": 2,
                 "heads": 2,
                 "head_dim": 8,
                 "big_window": [
@@ -391,7 +394,8 @@
                     ]
                 ],
                 "group_width": 16,
-                "expansion": 2,
+                "conv_expansion": 2,
+                "attn_expansion": 2,
                 "heads": 4,
                 "head_dim": 16,
                 "big_window": [

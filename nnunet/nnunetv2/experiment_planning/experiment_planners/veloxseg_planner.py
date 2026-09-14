@@ -8,7 +8,7 @@ import numpy as np
 from nnunetv2.configuration import ANISO_THRESHOLD
 from nnunetv2.experiment_planning.experiment_planners.default_experiment_planner import ExperimentPlanner
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import (
-    MODEL_POLICY, MODEL_CAPACITIES, TRAINING_POLICY, TRAINING_MEMORY_TARGET_GIB, TRAINING_BATCH_SIZE, plan_family,
+    MODEL_POLICY, MODEL_CAPACITIES, TRAINING_POLICY, TRAINING_MEMORY_TARGET_GIB, plan_family,
 )
 from nnunetv2.imageio.reader_writer_registry import determine_reader_writer_from_dataset_json
 from nnunetv2.paths import nnUNet_preprocessed
@@ -29,8 +29,7 @@ def build_plans(planner):
         raise ValueError('VeloxSegPlanner currently supports 3D full-resolution datasets')
     dataset = planner.dataset_json
     labels = LabelManager(dataset['labels'], regions_class_order=dataset.get('regions_class_order'))
-    family = plan_family(
-        spacing, median_shape, dataset, labels, planner.UNet_vram_target_GB, planner.training_batch_size)
+    family = plan_family(spacing, median_shape, dataset, labels, planner.UNet_vram_target_GB)
     normalizations, masks = planner.determine_normalization_scheme_and_whether_mask_is_used_for_norm()
     data_fn, data_kwargs, seg_fn, seg_kwargs = planner.determine_resampling()
     probabilities_fn, probabilities_kwargs = planner.determine_segmentation_softmax_export_fn()
@@ -46,7 +45,6 @@ def build_plans(planner):
         'resampling_fn_probabilities': probabilities_fn.__name__,
         'resampling_fn_probabilities_kwargs': probabilities_kwargs,
         'batch_dice': TRAINING_POLICY['batch_dice'],
-        'training': dict(TRAINING_POLICY),
     }
     plans = {
         'dataset_name': planner.dataset_name,
@@ -74,8 +72,7 @@ class VeloxSegPlanner(ExperimentPlanner):
     """Discovered by nnUNetv2_plan_and_preprocess -pl VeloxSegPlanner."""
     def __init__(self, dataset_name_or_id, gpu_memory_target_in_gb=TRAINING_MEMORY_TARGET_GIB,
                  preprocessor_name='DefaultPreprocessor', plans_name='nnVeloxSegPlans',
-                 overwrite_target_spacing=None, suppress_transpose=False, training_batch_size=TRAINING_BATCH_SIZE):
-        self.training_batch_size = training_batch_size
+                 overwrite_target_spacing=None, suppress_transpose=False):
         super().__init__(dataset_name_or_id, gpu_memory_target_in_gb, preprocessor_name,
                          plans_name, overwrite_target_spacing, suppress_transpose)
 
@@ -100,8 +97,7 @@ class FingerprintGeometry(ExperimentPlanner):
     This is the input adapter for the real saved-fingerprint use case. Both
     entry points call build_plans; there is no alternate planning algorithm.
     """
-    def __init__(self, dataset_name, dataset_json, fingerprint, memory_gb, training_batch_size):
-        self.training_batch_size = training_batch_size
+    def __init__(self, dataset_name, dataset_json, fingerprint, memory_gb):
         self.dataset_name = dataset_name
         self.dataset_json = dataset_json
         self.dataset_fingerprint = fingerprint
@@ -122,14 +118,11 @@ def main():
     parser.add_argument('--dataset-json', required=True, type=Path)
     parser.add_argument('--fingerprint', required=True, type=Path)
     parser.add_argument('--gpu-memory-target-in-gb', type=float, default=TRAINING_MEMORY_TARGET_GIB,
-                        help='Training tensor target in GiB; independent of batch-1 inference budgeting')
-    parser.add_argument('--training-batch-size', type=int, default=TRAINING_BATCH_SIZE,
-                        help='Fixed training batch used to select a feasible patch; default 8')
+                        help='Training tensor target in GiB; it selects the batch, not the model or crop')
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     planner = FingerprintGeometry(args.dataset_name, json.loads(args.dataset_json.read_text()),
-                                  json.loads(args.fingerprint.read_text()), args.gpu_memory_target_in_gb,
-                                  args.training_batch_size)
+                                  json.loads(args.fingerprint.read_text()), args.gpu_memory_target_in_gb)
     plans = build_plans(planner)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plans, indent=2) + '\n')

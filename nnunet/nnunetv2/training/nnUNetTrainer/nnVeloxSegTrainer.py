@@ -25,13 +25,13 @@ class nnVeloxSegTrainer(nnUNetTrainer):
             setattr(self, key, settings[key])
 
     @staticmethod
-    def build_network_architecture(architecture_class_name, arch_init_kwargs,
-                                   arch_init_kwargs_req_import, num_input_channels,
-                                   num_output_channels, enable_deep_supervision=True):
+    def build_network_architecture(plans_manager, configuration_manager,
+                                   num_input_channels, num_output_channels,
+                                   enable_deep_supervision=True):
         expected = f'{VeloxSeg.__module__}.{VeloxSeg.__name__}'
-        if architecture_class_name != expected:
+        if configuration_manager.network_arch_class_name != expected:
             raise ValueError(f'nnVeloxSegTrainer requires {expected}')
-        kwargs = dict(arch_init_kwargs)
+        kwargs = dict(configuration_manager.network_arch_init_kwargs)
         if sum(kwargs['in_ch']) != num_input_channels:
             raise ValueError('Modality groups must match the dataset channel count')
         kwargs['n_classes'] = num_output_channels
@@ -51,10 +51,26 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         settings = self.configuration_manager.configuration['training']
         self.initial_lr = settings['initial_lr']
         self.weight_decay = settings['weight_decay']
+        warmup_epochs = settings['warmup_epochs']
+        minimum_lr = settings['minimum_lr']
+        if not 0 <= warmup_epochs < self.num_epochs:
+            raise ValueError('warmup_epochs must be in [0, num_epochs)')
         optimizer = torch.optim.AdamW(self.network.parameters(), lr=self.initial_lr,
                                       weight_decay=self.weight_decay)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, self.num_epochs, eta_min=settings['minimum_lr'])
+        minimum_lr_factor = minimum_lr / self.initial_lr
+
+        def lr_lambda(epoch):
+            if warmup_epochs and epoch < warmup_epochs:
+                return (epoch + 1) / warmup_epochs
+            if warmup_epochs:
+                progress = (epoch - warmup_epochs + 1) / (self.num_epochs - warmup_epochs)
+            elif self.num_epochs == 1:
+                progress = 1
+            else:
+                progress = epoch / (self.num_epochs - 1)
+            return minimum_lr_factor + (1 - minimum_lr_factor) * (1 + np.cos(np.pi * progress)) / 2
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         return optimizer, scheduler
 
     def train_step(self, batch):

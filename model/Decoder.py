@@ -16,8 +16,8 @@ class DecoderStages(nn.Module):
             channels = stage['channels']
             self.ups.append(UpConv(stages[index + 1]['channels'], channels,
                                    stages[index + 1]['stride'], dim=spatial_dim))
-            self.layers.append(JLCLayer(channels, 1, stage['kernels'],
-                                       channels // stage['group_width'], stage['expansion'],
+            self.layers.append(JLCLayer(channels, stage['conv_depth'], stage['kernels'],
+                                       channels // stage['group_width'], stage['conv_expansion'],
                                        dropout=dropout, spatial_dim=spatial_dim))
 
     def forward(self, features):

@@ -20,7 +20,7 @@ class Conv_Encoder(nn.Module):
             self.downs.append(DownConv(previous, channels, stage['stride'], dim=spatial_dim))
             self.layers.append(JLCLayer(
                 channels, stage['conv_depth'], stage['kernels'],
-                channels // stage['group_width'], stage['expansion'],
+                channels // stage['group_width'], stage['conv_expansion'],
                 dropout=dropout, spatial_dim=spatial_dim))
             previous = channels
 
@@ -55,7 +55,7 @@ class Transformer_Encoder(nn.Module):
                 depth=stage['attn_depth'], min_big_window_size=stage['big_window'],
                 min_small_window_size=stage['small_window'], scale_factor=2,
                 num_heads=stage['heads'], min_dim_head=stage['head_dim'],
-                ffn_expansion_ratio=stage['expansion'], attn_drop=dropout,
+                ffn_expansion_ratio=stage['attn_expansion'], attn_drop=dropout,
                 proj_drop=dropout, dim=spatial_dim))
 
     def forward(self, x):

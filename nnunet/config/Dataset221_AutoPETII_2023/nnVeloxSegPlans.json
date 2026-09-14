@@ -66,24 +66,13 @@
         "force_separate_z": null
       },
       "batch_dice": false,
-      "training": {
-        "initial_lr": 0.001,
-        "weight_decay": 0.01,
-        "minimum_lr": 6e-06,
-        "num_epochs": 1000,
-        "num_iterations_per_epoch": 250,
-        "num_val_iterations_per_epoch": 50,
-        "oversample_foreground_percent": 0.33,
-        "batch_dice": false,
-        "seed": 12345
-      },
       "architecture": {
         "network_class_name": "model.VeloxSeg.VeloxSeg",
         "arch_kwargs": {
           "input_size": [
-            160,
-            224,
-            224
+            256,
+            320,
+            256
           ],
           "in_ch": [
             1,
@@ -96,75 +85,25 @@
                 4,
                 4
               ],
-              "channels": 8,
-              "kernels": [
-                [
-                  1,
-                  1,
-                  1
-                ],
-                [
-                  3,
-                  3,
-                  3
-                ],
-                [
-                  5,
-                  5,
-                  5
-                ]
-              ],
-              "conv_depth": 1,
-              "attn_depth": 1,
-              "group_width": 8,
-              "expansion": 2,
-              "heads": 1,
-              "head_dim": 8,
-              "big_window": [
-                5,
-                7,
-                7
-              ],
-              "small_window": [
-                1,
-                1,
-                1
-              ]
-            },
-            {
-              "stride": [
-                2,
-                2,
-                2
-              ],
               "channels": 16,
               "kernels": [
                 [
-                  1,
-                  1,
-                  1
-                ],
-                [
                   3,
                   3,
                   3
-                ],
-                [
-                  5,
-                  5,
-                  5
                 ]
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 16,
-              "expansion": 2,
+              "group_width": 4,
+              "conv_expansion": 3,
+              "attn_expansion": 3,
               "heads": 1,
-              "head_dim": 16,
+              "head_dim": 4,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -181,31 +120,22 @@
               "channels": 32,
               "kernels": [
                 [
-                  1,
-                  1,
-                  1
-                ],
-                [
                   3,
                   3,
                   3
-                ],
-                [
-                  5,
-                  5,
-                  5
                 ]
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 16,
-              "expansion": 2,
-              "heads": 1,
-              "head_dim": 16,
+              "group_width": 8,
+              "conv_expansion": 3,
+              "attn_expansion": 3,
+              "heads": 2,
+              "head_dim": 8,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -222,31 +152,86 @@
               "channels": 64,
               "kernels": [
                 [
-                  1,
-                  1,
-                  1
-                ],
-                [
                   3,
                   3,
                   3
-                ],
-                [
-                  5,
-                  5,
-                  5
                 ]
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 32,
-              "expansion": 2,
+              "group_width": 8,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
               "heads": 2,
-              "head_dim": 32,
+              "head_dim": 8,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 128,
+              "kernels": [
+                [
+                  3,
+                  3,
+                  3
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
+              "heads": 4,
+              "head_dim": 16,
+              "big_window": [
+                4,
+                5,
+                4
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 128,
+              "kernels": [
+                [
+                  3,
+                  3,
+                  3
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
+              "heads": 4,
+              "head_dim": 16,
+              "big_window": [
+                4,
+                5,
+                4
               ],
               "small_window": [
                 1,
@@ -255,13 +240,25 @@
               ]
             }
           ],
-          "dropout": 0.0,
+          "dropout": 0.1,
           "spatial_dim": 3
         },
         "_kw_requires_import": []
       },
-      "batch_size": 8,
+      "batch_size": 2,
       "model_size": "S",
+      "training": {
+        "initial_lr": 0.00025,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06,
+        "warmup_epochs": 10,
+        "num_epochs": 300,
+        "num_val_iterations_per_epoch": 50,
+        "oversample_foreground_percent": 0.33,
+        "batch_dice": false,
+        "seed": 12345,
+        "num_iterations_per_epoch": 500
+      },
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
@@ -271,15 +268,17 @@
           0.9311187002204314,
           3.6222506796570846
         ],
-        "training_batch_size": 8,
-        "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 14.949586908788904,
-        "parameters": 1242785
+        "batch_coverage_cap": 101,
+        "forced_foreground_fraction": 0.5,
+        "estimated_training_reserved_gib": 11.817441441986512,
+        "parameters": 3585427,
+        "training_flops_per_batch": 716585205760,
+        "inference_flops_per_patch": 66899394560.0
       },
       "patch_size": [
-        160,
-        224,
-        224
+        256,
+        320,
+        256
       ]
     },
     "3d_fullres_B": {
@@ -325,24 +324,13 @@
         "force_separate_z": null
       },
       "batch_dice": false,
-      "training": {
-        "initial_lr": 0.001,
-        "weight_decay": 0.01,
-        "minimum_lr": 6e-06,
-        "num_epochs": 1000,
-        "num_iterations_per_epoch": 250,
-        "num_val_iterations_per_epoch": 50,
-        "oversample_foreground_percent": 0.33,
-        "batch_dice": false,
-        "seed": 12345
-      },
       "architecture": {
         "network_class_name": "model.VeloxSeg.VeloxSeg",
         "arch_kwargs": {
           "input_size": [
-            160,
-            224,
-            224
+            256,
+            320,
+            256
           ],
           "in_ch": [
             1,
@@ -375,14 +363,15 @@
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 8,
-              "expansion": 2,
+              "group_width": 4,
+              "conv_expansion": 3,
+              "attn_expansion": 3,
               "heads": 1,
-              "head_dim": 8,
+              "head_dim": 4,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -416,14 +405,15 @@
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 16,
-              "expansion": 2,
-              "heads": 1,
-              "head_dim": 16,
+              "group_width": 8,
+              "conv_expansion": 3,
+              "attn_expansion": 3,
+              "heads": 2,
+              "head_dim": 8,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -457,14 +447,15 @@
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 16,
-              "expansion": 2,
+              "group_width": 8,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
               "heads": 2,
-              "head_dim": 16,
+              "head_dim": 8,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -498,14 +489,57 @@
               ],
               "conv_depth": 1,
               "attn_depth": 1,
-              "group_width": 32,
-              "expansion": 2,
+              "group_width": 16,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
               "heads": 4,
-              "head_dim": 32,
+              "head_dim": 16,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 128,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 1,
+              "attn_depth": 1,
+              "group_width": 16,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
+              "heads": 4,
+              "head_dim": 16,
+              "big_window": [
+                4,
+                5,
+                4
               ],
               "small_window": [
                 1,
@@ -514,13 +548,25 @@
               ]
             }
           ],
-          "dropout": 0.0,
+          "dropout": 0.1,
           "spatial_dim": 3
         },
         "_kw_requires_import": []
       },
-      "batch_size": 8,
+      "batch_size": 2,
       "model_size": "B",
+      "training": {
+        "initial_lr": 0.00025,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06,
+        "warmup_epochs": 10,
+        "num_epochs": 300,
+        "num_val_iterations_per_epoch": 50,
+        "oversample_foreground_percent": 0.33,
+        "batch_dice": false,
+        "seed": 12345,
+        "num_iterations_per_epoch": 500
+      },
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
@@ -530,15 +576,17 @@
           0.9311187002204314,
           3.6222506796570846
         ],
-        "training_batch_size": 8,
-        "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 17.804806114626686,
-        "parameters": 3151996
+        "batch_coverage_cap": 101,
+        "forced_foreground_fraction": 0.5,
+        "estimated_training_reserved_gib": 12.42582510216836,
+        "parameters": 5297171,
+        "training_flops_per_batch": 1177190563840,
+        "inference_flops_per_patch": 84776960000.0
       },
       "patch_size": [
-        160,
-        224,
-        224
+        256,
+        320,
+        256
       ]
     },
     "3d_fullres_L": {
@@ -584,24 +632,13 @@
         "force_separate_z": null
       },
       "batch_dice": false,
-      "training": {
-        "initial_lr": 0.001,
-        "weight_decay": 0.01,
-        "minimum_lr": 6e-06,
-        "num_epochs": 1000,
-        "num_iterations_per_epoch": 250,
-        "num_val_iterations_per_epoch": 50,
-        "oversample_foreground_percent": 0.33,
-        "batch_dice": false,
-        "seed": 12345
-      },
       "architecture": {
         "network_class_name": "model.VeloxSeg.VeloxSeg",
         "arch_kwargs": {
           "input_size": [
-            160,
-            224,
-            224
+            256,
+            320,
+            256
           ],
           "in_ch": [
             1,
@@ -614,7 +651,7 @@
                 4,
                 4
               ],
-              "channels": 24,
+              "channels": 16,
               "kernels": [
                 [
                   1,
@@ -632,16 +669,59 @@
                   5
                 ]
               ],
-              "conv_depth": 1,
-              "attn_depth": 1,
-              "group_width": 8,
-              "expansion": 2,
+              "conv_depth": 2,
+              "attn_depth": 2,
+              "group_width": 4,
+              "conv_expansion": 3,
+              "attn_expansion": 3,
               "heads": 1,
+              "head_dim": 4,
+              "big_window": [
+                4,
+                5,
+                4
+              ],
+              "small_window": [
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "stride": [
+                2,
+                2,
+                2
+              ],
+              "channels": 32,
+              "kernels": [
+                [
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  3,
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  5,
+                  5
+                ]
+              ],
+              "conv_depth": 2,
+              "attn_depth": 2,
+              "group_width": 8,
+              "conv_expansion": 3,
+              "attn_expansion": 3,
+              "heads": 2,
               "head_dim": 8,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -655,7 +735,7 @@
                 2,
                 2
               ],
-              "channels": 48,
+              "channels": 64,
               "kernels": [
                 [
                   1,
@@ -673,16 +753,17 @@
                   5
                 ]
               ],
-              "conv_depth": 1,
-              "attn_depth": 1,
-              "group_width": 12,
-              "expansion": 2,
-              "heads": 1,
-              "head_dim": 12,
+              "conv_depth": 2,
+              "attn_depth": 2,
+              "group_width": 8,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
+              "heads": 2,
+              "head_dim": 8,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -696,7 +777,7 @@
                 2,
                 2
               ],
-              "channels": 96,
+              "channels": 128,
               "kernels": [
                 [
                   1,
@@ -714,16 +795,17 @@
                   5
                 ]
               ],
-              "conv_depth": 1,
-              "attn_depth": 1,
+              "conv_depth": 2,
+              "attn_depth": 2,
               "group_width": 16,
-              "expansion": 2,
-              "heads": 3,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
+              "heads": 4,
               "head_dim": 16,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -737,7 +819,7 @@
                 2,
                 2
               ],
-              "channels": 192,
+              "channels": 128,
               "kernels": [
                 [
                   1,
@@ -755,16 +837,17 @@
                   5
                 ]
               ],
-              "conv_depth": 1,
-              "attn_depth": 1,
-              "group_width": 24,
-              "expansion": 2,
-              "heads": 6,
-              "head_dim": 24,
+              "conv_depth": 2,
+              "attn_depth": 2,
+              "group_width": 16,
+              "conv_expansion": 2,
+              "attn_expansion": 2,
+              "heads": 4,
+              "head_dim": 16,
               "big_window": [
+                4,
                 5,
-                7,
-                7
+                4
               ],
               "small_window": [
                 1,
@@ -773,13 +856,25 @@
               ]
             }
           ],
-          "dropout": 0.0,
+          "dropout": 0.1,
           "spatial_dim": 3
         },
         "_kw_requires_import": []
       },
-      "batch_size": 8,
+      "batch_size": 2,
       "model_size": "L",
+      "training": {
+        "initial_lr": 0.00025,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06,
+        "warmup_epochs": 10,
+        "num_epochs": 300,
+        "num_val_iterations_per_epoch": 50,
+        "oversample_foreground_percent": 0.33,
+        "batch_dice": false,
+        "seed": 12345,
+        "num_iterations_per_epoch": 500
+      },
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
         "training_memory_target_gib": 24,
@@ -789,15 +884,17 @@
           0.9311187002204314,
           3.6222506796570846
         ],
-        "training_batch_size": 8,
-        "inference_batch_size": 1,
-        "estimated_training_reserved_gib": 20.677064397119768,
-        "parameters": 5418071
+        "batch_coverage_cap": 101,
+        "forced_foreground_fraction": 0.5,
+        "estimated_training_reserved_gib": 19.752557102548007,
+        "parameters": 8413072,
+        "training_flops_per_batch": 1840333127680,
+        "inference_flops_per_patch": 120268226560.0
       },
       "patch_size": [
-        160,
-        224,
-        224
+        256,
+        320,
+        256
       ]
     }
   },
@@ -824,27 +921,37 @@
     }
   },
   "veloxseg_model_policy": {
+    "base_channels": 16,
+    "maximum_channels": 128,
     "stem_pooling_transitions": 2,
-    "minimum_feature_edge": 4,
-    "conv_depth": 1,
-    "attn_depth": 1,
-    "expansion": 2,
-    "channels_per_attention_head": 32,
-    "minimum_group_width": 4,
-    "dropout": 0.0
+    "minimum_feature_edge": 3,
+    "dropout": 0.1
   },
   "veloxseg_model_capacities": {
     "S": {
-      "base_channels": 8,
-      "maximum_channels": 160
+      "kernels": [
+        3
+      ],
+      "conv_depth": 1,
+      "attn_depth": 1
     },
     "B": {
-      "base_channels": 16,
-      "maximum_channels": 320
+      "kernels": [
+        1,
+        3,
+        5
+      ],
+      "conv_depth": 1,
+      "attn_depth": 1
     },
     "L": {
-      "base_channels": 24,
-      "maximum_channels": 480
+      "kernels": [
+        1,
+        3,
+        5
+      ],
+      "conv_depth": 2,
+      "attn_depth": 2
     }
   }
 }

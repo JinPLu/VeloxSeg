@@ -15,7 +15,7 @@ The installer modifies the current environment's nnUNet package; use a dedicated
 
 ## Data preparation
 
-Inputs are the original 1,251 BraTS2021 cases or the 1,014-case `AutoPETII_spac_norm` directory. Preparation requires a new raw dataset directory and uses the supplied fixed plans and splits.
+Inputs are the original 1,251 BraTS2021 cases or the 1,014-case `AutoPETII_spac_norm` directory. Preparation requires new raw and preprocessed dataset directories. BraTS uses all cases with nnU-Net's shuffled five-fold split (seed 12345); AutoPET uses the supplied split. Plans remain fixed.
 
 ```bash
 python nnunet/prepare.py 137 /path/to/BraTS2021
@@ -33,9 +33,11 @@ CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 137 3d_fullres 4 -tr nnVeloxSegTrainer -p 
 CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 221 3d_fullres 4 -tr nnVeloxSegTrainer -p nnVeloxSegPlans_B -num_gpus 1
 ```
 
+Run BraTS folds 0–4 for five-fold cross-validation in a new results directory. Existing checkpoints belong to the previous split.
+
 ## Inference and evaluation
 
-AutoPET example; for BraTS use dataset `137`, folder `Dataset137_BraTS2021`, and plans `nnVeloxSegPlans`.
+AutoPET example. BraTS evaluates each fold's held-out cases during final validation and writes `fold_X/validation/summary.json`.
 
 ```bash
 python -m nnunetv2.inference.predict_from_raw_data_noautocast \

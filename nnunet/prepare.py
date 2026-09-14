@@ -1,4 +1,4 @@
-"""Prepare the two fixed reproduction datasets, without generating new plans."""
+"""Prepare BraTS cross-validation and the fixed AutoPET split, without generating plans."""
 import argparse
 import json
 import os
@@ -47,7 +47,7 @@ def prepare(dataset, source):
         expected = 1014
 
     if len(cases) != expected:
-        raise ValueError(f"The fixed reproduction expects {expected} cases, found {len(cases)}")
+        raise ValueError(f"The dataset expects {expected} cases, found {len(cases)}")
     if dataset == 137:
         training_cases = set(cases)
         splits = generate_crossval_split(cases, seed=12345, n_splits=5)

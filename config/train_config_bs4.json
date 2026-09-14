@@ -107,5 +107,6 @@
             "data_path": "./datasets/MSD2019_Task01/imagesTr/*.nii.gz",
             "label_path": "./datasets/MSD2019_Task01/labelsTr/*.nii.gz"
         }
-    }
+    },
+    "rotation_probability": 0.5
 }

@@ -2,17 +2,8 @@
 
 ## News / Updates
 
-- **2026-09**: Restored averaged VeloxSeg segmentation-head weights, commented out training rotation, and kept the WarmRestarts schedule. Rotation, if re-enabled, is 15 degrees.
+- **2026-09**: Published the completed fixed-configuration reproduction: standalone AutoPET uses summed segmentation-head losses, ±15° rotation (probability 0.5), and the trained WarmRestarts schedule. Fixed nnUNet training, inference and plans are in [nnunet/](nnunet/README.md). Automatic parameter configuration is deferred.
 - **2026-01**: VeloxSeg is accepted by **ICLR 2026**!
-- **2026-01**: We are preparing an open-source **VeloxSeg v2** with **out-of-the-box nnUNet/nnUNetv2-style auto-configuration** (dataset conversion scripts + auto-generated plans + a `VeloxSegTrainer` inheriting from `nnUNetTrainer`). See the roadmap below.
-
-## Roadmap (VeloxSeg v2: nnUNet-style auto-configuration)
-
-- [ ] Release a `v2` branch with nnUNet/nnUNetv2-style auto-configuration (dataset fingerprinting, auto-generated `plans` files, reproducible seeds).
-- [ ] Provide dataset conversion helpers to nnUNet format (generate `dataset.json` + splits; validate spacing/orientation; optional modality handling).
-- [ ] Implement a `VeloxSegTrainer` that inherits from `nnUNetTrainer`, with VeloxSeg-specific architecture/loss defaults.
-- [ ] Provide one-command training examples (e.g., `nnUNetv2_plan_and_preprocess` + `nnUNetv2_train`).
-- [ ] Provide pre-trained weights, inference demos, and minimal docs for end-to-end usage.
 
 ## Overview
 
@@ -90,7 +81,7 @@ VeloxSeg/
 
 - Ubuntu 22.04.4 LTS
 - Python 3.10.16
-- CUDA-capable runtime. The original environment used CUDA 12.2; install the PyTorch wheel that matches your driver/runtime.
+- CUDA-capable runtime. The completed reproduction used PyTorch 2.6.0 with CUDA 12.4; install a compatible driver and wheel.
 - NVIDIA GeForce RTX 3090 (or compatible GPU)
 
 ### Setup
@@ -101,7 +92,7 @@ conda create -n VeloxSeg python==3.10
 conda activate VeloxSeg
 
 # Install PyTorch
-pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
 # Install other dependencies
 pip install -r requirements.txt
@@ -136,7 +127,7 @@ python ./preprocess/normalization_MRI.py     # For MRI datasets
 
 ### Quick Start
 
-> Note: The current `main` branch uses VeloxSeg's JSON configs (`config/*.json`). The nnUNet/nnUNetv2-style auto-configuration and `nnUNetTrainer`-based training will be shipped in **VeloxSeg v2** (see Roadmap).
+> The default branch is `master`. Root entrypoints use the standalone JSON configuration. For the completed nnUNet reproduction, use the separate [fixed nnUNet instructions](nnunet/README.md).
 
 ```bash
 # Train on AutoPET-II dataset
@@ -148,7 +139,9 @@ DATASET_NAME=BraTS2021 GPU_ID=0 sh train.sh
 
 ### Custom Training
 
-`config/train_config_bs4.json` is the historical default config filename. The effective batch size is read from the JSON file.
+`config/train_config_bs4.json` is the historical filename; the actual batch size is **2**, with two sampled patches per case. The completed AutoPET run used 300 epochs, seed 12345, sorted 608/203/203 train/validation/test cases, and ±15° rotation with probability 0.5 (bilinear images, nearest-neighbor labels).
+
+VeloxSeg sums CE + Dice across its four full-resolution segmentation heads, then adds `0.5 × reconstruction MSE + 2 × mean teacher Gram MSE`. `deep_Loss_weight` controls the compared models' weighted losses, not VeloxSeg's sum. AdamW uses LR 0.00025 and weight decay 0.01; the retained scheduler is 10 warmup steps followed by WarmRestarts with T0=300. Its historical constructor order makes epoch 1 use 0.00025 and epoch 11 use 0.000275; the 300-epoch run takes 290 cosine steps without a restart. These details are retained to match the completed run.
 
 ```bash
 python run_train.py \
@@ -209,15 +202,21 @@ Key VeloxSeg parameters:
 
 ## Performance
 
-### Computational Efficiency
+### Paper-reported computational efficiency
 
 - **Parameters**: 1.66M (vs 88.62M for nnUNet)
 - **FLOPs**: 1.79G (vs 3078.83G for nnUNet)
 - **GPU Throughput**: 599.06 patches/s
 - **CPU Throughput**: 6.67 patches/s
 
-### Segmentation Performance
+### Segmentation results
 
-- **AutoPET-II**: 62.51% Dice (vs 48.35% for SuperLightNet)
-- **Hecktor2022**: 56.48% Dice (vs 50.03% for SuperLightNet)
-- **BraTS2021**: 91.44% Dice (vs 89.72% for SuperLightNet)
+| Pipeline / test metric | September 2026 reproduction |
+|---|---:|
+| Standalone AutoPET, 102 positive cases among 203 test cases | 62.1966% Dice |
+| Fixed nnUNet AutoPET, the same 102 positive cases | 69.8790% Dice |
+| Fixed nnUNet BraTS, 251 cases, native whole-volume WT/TC/ET mean | 81.0976% Dice |
+
+The standalone AutoPET result uses the best validation checkpoint (epoch 265), FP32 sliding-window inference, 25% overlap, patch batch 2, and no TTA. The nnUNet results use the final epoch-1000 checkpoint and native TTA. On the 101 common negative AutoPET cases, standalone and nnUNet predict foreground in 42 and 101 cases respectively; positive-only Dice does not describe negative-case performance.
+
+Paper-reported results were AutoPET 62.51%, Hecktor 56.48%, and BraTS 91.44%. The precise AutoPET 62.51% checkpoint is not yet identified. BraTS 91.44% used a legacy slice-averaged evaluator with a TC label mismatch; the new predictions score 91.32% with that same legacy evaluator, versus 81.10% with the corrected native whole-volume evaluator. See [evaluation definitions and the fixed nnUNet protocol](nnunet/README.md). The root standalone BraTS metric now also reduces all three spatial axes; its labels retain the separate standalone convention (`4→3`, TC `{1,3}`).

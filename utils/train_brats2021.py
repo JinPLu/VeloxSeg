@@ -6,7 +6,6 @@ import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 from .seed import seed_everything
-seed_everything(seed = 12345)
 
 from .optimizers.optimizers import build_optimizer
 from .optimizers.schedulers import build_scheduler, select_scheduler, step_scheduler
@@ -40,6 +39,8 @@ from .runtime import (
 )
 
 def run_train(args, train_config, model_config):
+
+    seed_everything(seed=12345)
 
     torch.set_num_threads(args.num_workers)
     device = get_torch_device(args.gpu_id)
@@ -150,12 +151,11 @@ def run_train(args, train_config, model_config):
                         neg=1,
                         num_samples=2,
                     ),
-                # If re-enabled, use 15 degrees, not 15 radians.
-                # RandRotated(keys=["flair", "t1", 't1ce', 't2', "seg"],
-                #         range_z=rotation_range_from_degrees(15),
-                #         mode=image_label_modes(4),
-                #         prob=0.5,
-                #     ),
+                RandRotated(keys=["flair", "t1", 't1ce', 't2', "seg"],
+                        range_z=rotation_range_from_degrees(15),
+                        mode=image_label_modes(4),
+                        prob=train_config["rotation_probability"],
+                    ),
                 
                 ToTensord(keys=["flair", "t1", 't1ce', 't2', ]),
             ]

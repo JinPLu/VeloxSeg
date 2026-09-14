@@ -109,7 +109,6 @@ class Net(pytorch_lightning.LightningModule):
 def run_Inference(args):
 
     date = datetime.now().strftime("%m_%d") if args.train_date is None else args.train_date
-    pred_path = None
     model_index = f"_{args.model_index}" if args.model_index is not None else ""
 
     with open(args.train_config, 'r', encoding='utf-8') as f:
@@ -145,9 +144,10 @@ def run_Inference(args):
                             stdout = False)
     checkpoint_path = os.path.join(args.checkpoint_dir, args.checkpoint_index + '.pth')
     file_path = os.path.join(metrics_path, f"{args.checkpoint_index}.csv")
+    pred_path = os.path.join(test_config['result_pred_path'], args.dataset_name, args.model_name, date + model_index)
     if args.specific_sample is not None:
-        pred_path = os.path.join(test_config['result_pred_path'], args.dataset_name, str(args.specific_sample))
-        os.makedirs(pred_path, exist_ok=True)
+        pred_path = os.path.join(pred_path, str(args.specific_sample))
+    os.makedirs(pred_path, exist_ok=True)
     segment_MRI(args, logger, model_config, train_config, test_config, checkpoint_path, pred_path, file_path)
     logger.handlers.clear()
         
@@ -216,6 +216,10 @@ def segment_MRI(args, logger, model_config, train_config, test_config, checkpoin
                 avg_hd95, et_hd95, tc_hd95, wt_hd95 = -1, -1, -1, -1
             logger.info(f"{name[0]} {i}/{length} [avg_dice:{avg_dice:4f}, et_dice:{et_dice:4f}, tc_dice:{tc_dice:4f}, wt_dice:{wt_dice:4f}, pix:{(out>0).sum()}/{(label>0).sum()}]")
             result += [[avg_dice, et_dice, tc_dice, wt_dice, avg_hd95, et_hd95, tc_hd95, wt_hd95, float((out>0).sum()), float((label>0).sum())]]
+
+            # Preserve each whole-volume class mask for later metric comparison.
+            mask = nib.Nifti1Image(out[0, 0].cpu().numpy().astype(np.uint8), data['seg'].meta['affine'][0])
+            nib.save(mask, os.path.join(pred_path, f"{name[0]}.nii.gz"))
 
             # save prediction map
             if args.specific_sample is not None:

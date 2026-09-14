@@ -9,8 +9,40 @@ from .components.attention_utils import LayerNorm     # Layer normalization
 from .components.common_function import concat  # Utility functions
 
 # Import encoder and decoder components
+from .components.common_function import get_conv, get_traspose_conv
+from .components.conv_blocks import UpConv, JLCLayer
 from .Encoder import Encoder
 from .Decoder import RC_Decoder, Seg_Decoder
+
+
+class _InitialSegDecoder(nn.Module):
+    """Preserve the decoder construction and RNG sequence of the trained baseline."""
+
+    def __init__(
+        self, patch_size: int, base_ch: int = 32, out_ch: int = 2,
+        depths: Sequence[int] = [1, 1, 1, 1],
+        kernel_sizes: Sequence[int] = [1, 3, 5],
+        min_dim_group: Sequence[int] = [4, 8, 16, 16],
+        expansion_factor: Sequence[int] = [4, 4, 4, 4],
+        dropout: float = 0.0, deep_supervision: bool = False,
+        spatial_dim: int = 3,
+    ):
+        super(_InitialSegDecoder, self).__init__()
+        self.deep_supervision = deep_supervision
+        transpose_conv = get_traspose_conv(spatial_dim)
+        conv = get_conv(spatial_dim)
+        self.layer_up3 = UpConv(base_ch * 8, base_ch * 4, up_rate=2, dim=spatial_dim)
+        self.layer_up2 = UpConv(base_ch * 4, base_ch * 2, up_rate=2, dim=spatial_dim)
+        self.layer_up1 = UpConv(base_ch * 2, base_ch, up_rate=2, dim=spatial_dim)
+        groups = [base_ch * 2 ** i // min_dim_group[i] for i in range(4)]
+        self.layer1 = JLCLayer(base_ch, depths[0], kernel_sizes, groups[0], expansion_factor[0], dropout=dropout, spatial_dim=spatial_dim)
+        self.layer2 = JLCLayer(base_ch * 2, depths[1], kernel_sizes, groups[1], expansion_factor[1], dropout=dropout, spatial_dim=spatial_dim)
+        self.layer3 = JLCLayer(base_ch * 4, depths[2], kernel_sizes, groups[2], expansion_factor[2], dropout=dropout, spatial_dim=spatial_dim)
+        self.out_conv1 = transpose_conv(base_ch, out_ch, kernel_size=patch_size, stride=patch_size, padding=0, output_padding=0)
+        if deep_supervision:
+            self.out_conv2 = conv(base_ch * 2, out_ch, 1, 1)
+            self.out_conv3 = conv(base_ch * 4, out_ch, 1, 1)
+            self.out_conv4 = conv(base_ch * 8, out_ch, 1, 1)
 
 
 class VeloxSeg(nn.Module):
@@ -133,21 +165,37 @@ class VeloxSeg(nn.Module):
         )
         
         # Segmentation Decoder (Student branch)
-        self.decoder = Seg_Decoder(
+        self.decoder = _InitialSegDecoder(
             patch_size              = patch_size,
             base_ch                 = base_ch,
             out_ch                  = n_classes,
-            
+
             depths                  = conv_depths,
             kernel_sizes            = kernel_sizes,
             min_dim_group           = min_dim_group,
             expansion_factor        = conv_expansion_factor,
-            
+
             dropout                 = conv_drop,
             deep_supervision        = deep_supervision,
             spatial_dim             = spatial_dim,
         )
-        
+        self.init_weights()
+
+        self.decoder = Seg_Decoder(
+            patch_size              = patch_size,
+            base_ch                 = base_ch,
+            out_ch                  = n_classes,
+
+            depths                  = conv_depths,
+            kernel_sizes            = kernel_sizes,
+            min_dim_group           = min_dim_group,
+            expansion_factor        = conv_expansion_factor,
+
+            dropout                 = conv_drop,
+            deep_supervision        = deep_supervision,
+            spatial_dim             = spatial_dim,
+        )
+
         # Reconstruction Decoders (Teacher branch) - one for each modality
         # These implement the Self-Supervised Textual Teacher for SDKT knowledge distillation
         # Each teacher T_m learns rich textural details optimized by reconstruction tasks
@@ -223,4 +271,4 @@ class VeloxSeg(nn.Module):
             enc1, enc2, enc3, enc4 = self.encoder(x)
             # Inference mode: only segmentation prediction
             pred = self.decoder(enc1, enc2, enc3, enc4)
-            return pred
+            return self.scale_prediction(pred)

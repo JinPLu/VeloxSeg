@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-import copy
 from medpy.metric.binary import hd95
 
 def show_deep_metrics(outputs, labels, deep=True):
@@ -58,30 +57,17 @@ def metrics_tensor(gt, pred):
     if gt.shape[1] == 2:
         gt = gt[:, 1:]
     
-    pred = pred.type(torch.IntTensor)
-    gt = gt.type(torch.IntTensor)
-    fp_array = copy.deepcopy(pred)
-    fn_array = copy.deepcopy(gt)
-    gt_sum = gt.sum((1, 2, 3, 4))
-    pred_sum = pred.sum((1, 2, 3, 4))
-    
-    intersection = gt & pred
-    union = gt | pred
-    intersection_sum = intersection.sum((1, 2, 3, 4))
-    union_sum = union.sum((1, 2, 3, 4))
-    
-    tp_array = intersection
-    
-    diff = pred - gt
-    fp_array[diff < 1] = 0
-    
-    diff = gt - pred
-    fn_array[diff < 1] = 0
-    
-    tn_array = torch.ones_like(gt) - union
-    
-    tp, fp, fn, tn = tp_array.sum((1, 2, 3, 4)), fp_array.sum((1, 2, 3, 4)), fn_array.sum((1, 2, 3, 4)), tn_array.sum((1, 2, 3, 4))
-    
+    pred = pred.to(dtype=torch.bool)
+    gt = gt.to(device=pred.device, dtype=torch.bool)
+    axes = tuple(range(1, pred.ndim))
+    gt_sum = gt.sum(axes)
+    pred_sum = pred.sum(axes)
+    tp = (gt & pred).sum(axes)
+    fp = pred_sum - tp
+    fn = gt_sum - tp
+    union_sum = tp + fp + fn
+    tn = pred[0].numel() - union_sum
+
     smooth = 1e-5
     precision = tp / (pred_sum + smooth)
     recall = tp / (gt_sum + smooth)
@@ -90,7 +76,7 @@ def metrics_tensor(gt, pred):
     false_positive_rate = fp / (fp + tn + smooth)
     false_negtive_rate = fn / (fn + tp + smooth)
 
-    jaccard = intersection_sum / (union_sum + smooth)
-    dice = 2 * intersection_sum / (gt_sum + pred_sum + smooth)
+    jaccard = tp / (union_sum + smooth)
+    dice = 2 * tp / (gt_sum + pred_sum + smooth)
     
-    return [float(metc.mean()) for metc in [false_positive_rate, false_negtive_rate, precision, recall, f1_score, jaccard, dice]]
+    return torch.stack([metc.mean() for metc in [false_positive_rate, false_negtive_rate, precision, recall, f1_score, jaccard, dice]]).cpu().tolist()

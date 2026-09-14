@@ -60,7 +60,7 @@ class Net(pytorch_lightning.LightningModule):
             self.args.dataset_name,
             {"ct": images_CT, "pet": images_PET, "label": labels},
         )
-        names = [filename.split("_")[-1].replace('.nii.gz', '') for filename in labels]
+        names = [os.path.basename(filename).removesuffix('.nii.gz') for filename in labels]
        
         files = [{"img": img, "img_ct": ct, "label":label, "name":name} \
                     for img, ct, label, name in zip(images_PET, images_CT, labels, names)]
@@ -247,11 +247,11 @@ def segment_PETCT(args, logger, model_config, train_config, test_config, checkpo
 
             else:
                 logger.info(f"{name[0]} {i}/{length} [time: {time_cost:.4f}, fp:{fp:4f}, fn:{fn:4f}, recall:{rec:4f}, precision:{prec:4f}, f1:{f1:4f}, iou:{iou:4f}, dice:{dice:4f}, hd95:{hd95:4f}, pix:{out.sum()}/{label.sum()}]")
-                result += [[time_cost, fp, fn, rec, prec, f1, iou, dice, hd95, float(out.sum()), float(label.sum())]]
+                result += [[name[0], time_cost, fp, fn, rec, prec, f1, iou, dice, hd95, float(out.sum()), float(label.sum())]]
             
                 del out, inputs, ct, pet, label, time_cost, fp, fn, rec, prec, f1, iou, dice
             # break
     if args.specific_sample is None:
         result = pd.DataFrame(result)
-        result.columns = ["Time", "FP", "FN", "Recall", "Precision", "F1", "IoU", "Dice", "HD95", "Prediction", "Label"]
+        result.columns = ["Case", "Time", "FP", "FN", "Recall", "Precision", "F1", "IoU", "Dice", "HD95", "Prediction", "Label"]
         result.to_csv(file_path, index=None)

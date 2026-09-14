@@ -1,0 +1,340 @@
+{
+  "dataset_name": "Dataset137_BraTS2021",
+  "plans_name": "nnVeloxSegPlans",
+  "original_median_spacing_after_transp": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "original_median_shape_after_transp": [
+    140,
+    171,
+    136
+  ],
+  "image_reader_writer": "SimpleITKIO",
+  "transpose_forward": [
+    0,
+    1,
+    2
+  ],
+  "transpose_backward": [
+    0,
+    1,
+    2
+  ],
+  "configurations": {
+    "3d_fullres": {
+      "data_identifier": "nnUNetPlans_3d_fullres",
+      "preprocessor_name": "DefaultPreprocessor",
+      "batch_size": 4,
+      "patch_size": [
+        96,
+        96,
+        96
+      ],
+      "median_image_size_in_voxels": [
+        140.0,
+        171.0,
+        136.0
+      ],
+      "spacing": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "normalization_schemes": [
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization",
+        "ZScoreNormalization"
+      ],
+      "use_mask_for_norm": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "resampling_fn_data": "resample_data_or_seg_to_shape",
+      "resampling_fn_seg": "resample_data_or_seg_to_shape",
+      "resampling_fn_data_kwargs": {
+        "is_seg": false,
+        "order": 3,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_seg_kwargs": {
+        "is_seg": true,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "resampling_fn_probabilities": "resample_data_or_seg_to_shape",
+      "resampling_fn_probabilities_kwargs": {
+        "is_seg": false,
+        "order": 1,
+        "order_z": 0,
+        "force_separate_z": null
+      },
+      "architecture": {
+        "network_class_name": "nnunetv2.training.nnUNetTrainer.variants.network_architecture.model.SlimMSUA2_RC3.SlimMSUA_RC",
+        "arch_kwargs": {
+          "input_size": [
+            96,
+            96,
+            96
+          ],
+          "in_ch": [
+            4
+          ],
+          "n_classes": 4,
+          "conv_depths": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "kernel_sizes": [
+            [
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                3,
+                3,
+                3
+              ],
+              [
+                5,
+                5,
+                5
+              ]
+            ],
+            [
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                3,
+                3,
+                3
+              ],
+              [
+                5,
+                5,
+                5
+              ]
+            ],
+            [
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                3,
+                3,
+                3
+              ],
+              [
+                5,
+                5,
+                5
+              ]
+            ],
+            [
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                3,
+                3,
+                3
+              ],
+              [
+                5,
+                5,
+                5
+              ]
+            ]
+          ],
+          "min_dim_group": [
+            4,
+            8,
+            8,
+            16
+          ],
+          "conv_expansion_factor": [
+            3,
+            3,
+            2,
+            2
+          ],
+          "depths": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "min_big_window_sizes": [
+            [
+              3,
+              3,
+              3
+            ],
+            [
+              6,
+              6,
+              6
+            ],
+            [
+              3,
+              3,
+              3
+            ],
+            [
+              3,
+              3,
+              3
+            ]
+          ],
+          "min_small_window_sizes": [
+            [
+              1,
+              1,
+              1
+            ],
+            [
+              1,
+              1,
+              1
+            ],
+            [
+              1,
+              1,
+              1
+            ],
+            [
+              1,
+              1,
+              1
+            ]
+          ],
+          "min_dim_head": [
+            4,
+            8,
+            8,
+            16
+          ],
+          "ffn_expansion_ratio": [
+            3,
+            3,
+            2,
+            2
+          ],
+          "num_heads": [
+            1,
+            2,
+            2,
+            4
+          ],
+          "proj_drop": 0.1,
+          "conv_drop": 0.1,
+          "spatial_dim": 3,
+          "scale_factors": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "strides": [
+            [
+              4,
+              4,
+              4
+            ],
+            [
+              2,
+              2,
+              2
+            ],
+            [
+              2,
+              2,
+              2
+            ],
+            [
+              2,
+              2,
+              2
+            ]
+          ],
+          "conv_channels": [
+            16,
+            32,
+            64,
+            128
+          ],
+          "attn_channels": [
+            16,
+            32,
+            64,
+            128
+          ]
+        },
+        "_kw_requires_import": []
+      },
+      "batch_dice": false,
+      "optimizer": {
+        "initial_lr": 0.001,
+        "weight_decay": 0.01,
+        "minimum_lr": 6e-06
+      }
+    }
+  },
+  "experiment_planner_used": "ExperimentPlanner",
+  "label_manager": "LabelManager",
+  "foreground_intensity_properties_per_channel": {
+    "0": {
+      "max": 100487.5078125,
+      "mean": 904.0574340820312,
+      "median": 395.0,
+      "min": 1.0,
+      "percentile_00_5": 119.0,
+      "percentile_99_5": 4365.0,
+      "std": 2194.0966796875
+    },
+    "1": {
+      "max": 1905559.25,
+      "mean": 1879.53955078125,
+      "median": 542.0,
+      "min": 2.0,
+      "percentile_00_5": 113.0,
+      "percentile_99_5": 8129.0,
+      "std": 20990.79296875
+    },
+    "2": {
+      "max": 4438107.0,
+      "mean": 2362.4501953125,
+      "median": 729.0,
+      "min": 0.0,
+      "percentile_00_5": 110.0,
+      "percentile_99_5": 5698.0,
+      "std": 50524.0390625
+    },
+    "3": {
+      "max": 580014.3125,
+      "mean": 1025.9791259765625,
+      "median": 511.0,
+      "min": 0.0,
+      "percentile_00_5": 121.0,
+      "percentile_99_5": 3722.0,
+      "std": 5075.81494140625
+    }
+  }
+}

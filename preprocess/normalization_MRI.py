@@ -5,6 +5,7 @@ import SimpleITK as sitk
 import shutil
 
 def zscore(image, seg):
+    image = image.astype(np.float32, copy=True)
     mask = seg >= 0
     mean = image[mask].mean()
     std = image[mask].std()

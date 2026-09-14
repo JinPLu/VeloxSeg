@@ -19,8 +19,10 @@ def show_deep_metrics(outputs, labels, deep=True):
     return res, string
 
 def Dice(output, target, eps=1e-6):
-    inter = torch.sum(output * target, dim=(1,2,3)) + eps
-    union = torch.sum(output,dim=(1,2,3)) + torch.sum(target,dim=(1,2,3)) + eps * 2
+    # Reduce all non-batch axes: (B, 1, X, Y, Z) -> one whole-volume Dice per case.
+    axes = tuple(range(1, output.ndim))
+    inter = torch.sum(output * target, dim=axes) + eps
+    union = torch.sum(output, dim=axes) + torch.sum(target, dim=axes) + eps * 2
     x = 2 * inter / union
     dice = torch.mean(x)
     return dice

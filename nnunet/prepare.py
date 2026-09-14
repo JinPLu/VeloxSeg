@@ -7,6 +7,7 @@ import shutil
 
 import numpy as np
 import SimpleITK as sitk
+from nnunetv2.utilities.crossval_split import generate_crossval_split
 
 
 def copy_BraTS_segmentation_and_convert_labels_to_nnUNet(in_file, out_file):
@@ -29,8 +30,9 @@ def prepare(dataset, source):
     config = next(config_root.glob(f"Dataset{dataset}_*"))
     raw = Path(os.environ["nnUNet_raw"]) / config.name
     preprocessed = Path(os.environ["nnUNet_preprocessed"]) / config.name
-    if raw.exists():
-        raise FileExistsError(f"Use a new nnUNet_raw directory; {raw} already exists")
+    for destination in (raw, preprocessed):
+        if destination.exists():
+            raise FileExistsError(f"Use new data/output directories; {destination} already exists")
 
     if dataset == 137:
         cases = sorted(p.name for p in source.glob("BraTS*") if p.is_dir())
@@ -46,17 +48,22 @@ def prepare(dataset, source):
 
     if len(cases) != expected:
         raise ValueError(f"The fixed reproduction expects {expected} cases, found {len(cases)}")
-    splits = json.loads((config / "splits_final.json").read_text())
-    training_cases = set(splits[4]["train"] + splits[4]["val"])
-    boundary = int(len(cases) * 0.6) + int(len(cases) * 0.2)
-    if set(cases[:boundary]) != training_cases:
-        raise ValueError("Input case IDs differ from the published training/validation split")
+    if dataset == 137:
+        training_cases = set(cases)
+        splits = generate_crossval_split(cases, seed=12345, n_splits=5)
+    else:
+        splits = json.loads((config / "splits_final.json").read_text())
+        training_cases = set(splits[4]["train"] + splits[4]["val"])
+        boundary = int(len(cases) * 0.6) + int(len(cases) * 0.2)
+        if set(cases[:boundary]) != training_cases:
+            raise ValueError("Input case IDs differ from the published training/validation split")
     for case in cases:
         for path in [*images(case), label(case)]:
             if not path.is_file():
                 raise FileNotFoundError(path)
 
-    for folder in ("imagesTr", "labelsTr", "imagesTs", "labelsTs"):
+    folders = ("imagesTr", "labelsTr") if dataset == 137 else ("imagesTr", "labelsTr", "imagesTs", "labelsTs")
+    for folder in folders:
         (raw / folder).mkdir(parents=True)
     for i, case in enumerate(cases):
         split = "Tr" if case in training_cases else "Ts"
@@ -72,7 +79,9 @@ def prepare(dataset, source):
     preprocessed.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(config / "dataset.json", raw / "dataset.json")
     for path in config.glob("*.json"):
-        shutil.copyfile(path, preprocessed / path.name)
+        if path.name != "splits_final.json":
+            shutil.copyfile(path, preprocessed / path.name)
+    (preprocessed / "splits_final.json").write_text(json.dumps(splits, indent=2) + "\n")
 
 
 if __name__ == "__main__":

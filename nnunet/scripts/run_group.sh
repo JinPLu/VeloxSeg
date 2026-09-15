@@ -10,7 +10,6 @@ tasks_file=$1
 : "${nnUNet_raw:?Set nnUNet_raw}"
 : "${nnUNet_preprocessed:?Set nnUNet_preprocessed}"
 : "${nnUNet_results:?Set nnUNet_results to the experiment results directory}"
-export nnUNet_compile=false
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 # UUID selectors keep the platform's assignment when each child sees one GPU.

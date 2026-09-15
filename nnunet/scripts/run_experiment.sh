@@ -13,25 +13,26 @@ dataset_id=$1
 configuration=$2
 fold=$3
 plans=$4
-case "$dataset_id" in
-    137) dataset=Dataset137_BraTS2021 ;;
-    221) dataset=Dataset221_AutoPETII_2023 ;;
-    990) dataset=Dataset990_Hecktor_2022 ;;
-    *) echo "Expected dataset 137, 221 or 990" >&2; exit 2 ;;
-esac
+dataset=$(python -c '
+import sys
+from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
+print(maybe_convert_to_dataset_name(sys.argv[1]))
+' "$dataset_id")
 case "$fold" in 0|1|2|3|4) ;; *) echo "Expected fold 0, 1, 2, 3 or 4" >&2; exit 2 ;; esac
 output="$nnUNet_results/$dataset/nnVeloxSegTrainer__${plans}__${configuration}/fold_${fold}"
 mkdir -p "$output"
 exec > >(tee -a "$output/stdout.log") 2>&1
 shift 4
 nnUNetv2_train "$dataset_id" "$configuration" "$fold" -tr nnVeloxSegTrainer -p "$plans" -num_gpus 1 "$@"
-if [[ "$dataset_id" == 137 ]]; then
+if [[ ! -d "$nnUNet_raw/$dataset/imagesTs" ]]; then
     exit 0
 fi
 nnUNetv2_predict -i "$nnUNet_raw/$dataset/imagesTs" -o "$output/prediction" \
     -d "$dataset_id" -c "$configuration" -f "$fold" -tr nnVeloxSegTrainer \
     -p "$plans" -chk checkpoint_final.pth -npp 2 -nps 2
-nnUNetv2_evaluate_folder "$nnUNet_raw/$dataset/labelsTs" "$output/prediction" \
-    -djfile "$nnUNet_preprocessed/$dataset/dataset.json" \
-    -pfile "$nnUNet_preprocessed/$dataset/$plans.json" \
-    -o "$output/test_summary.json" -np 2
+if [[ -d "$nnUNet_raw/$dataset/labelsTs" ]]; then
+    nnUNetv2_evaluate_folder "$nnUNet_raw/$dataset/labelsTs" "$output/prediction" \
+        -djfile "$nnUNet_preprocessed/$dataset/dataset.json" \
+        -pfile "$nnUNet_preprocessed/$dataset/$plans.json" \
+        -o "$output/test_summary.json" -np 2
+fi

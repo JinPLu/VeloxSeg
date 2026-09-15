@@ -1,9 +1,15 @@
 import math
+import socket
+import time
 import unittest
+from datetime import timedelta
 
 import torch
+from torch import distributed as dist
+from torch import multiprocessing as mp
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.parallel import DistributedDataParallel
 
 from model.loss import VeloxSegLoss
 from nnunetv2.training.logging.nnunet_logger import MetaLogger
@@ -132,6 +138,53 @@ class StepGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, f'{LIMIT + 1} consecutive optimizer steps were skipped'):
             trainer.train_step(batch(nan=True))
         self.assertIn('Numerically broken training', trainer.log_lines[-1])
+
+
+def ddp_rank(rank, port, results):
+    """One gloo rank: a NaN batch on rank 1 only, then a finite batch on both ranks."""
+    dist.init_process_group('gloo', init_method=f'tcp://127.0.0.1:{port}', rank=rank, world_size=2,
+                            timeout=timedelta(seconds=20))
+    trainer = make_trainer()
+    trainer.network = DistributedDataParallel(trainer.network)
+    trainer.is_ddp = True
+    before = snapshot(trainer)
+    trainer.train_step(batch(nan=rank == 1))
+    skipped = {'record': trainer.step_records[-1], 'changed': changed(before, trainer),
+               'no_grads': all(parameter.grad is None for parameter in trainer.network.parameters())}
+    trainer.train_step(batch())
+    applied = {'record': trainer.step_records[-1], 'changed': changed(before, trainer),
+               'weights': [tensor.double().sum().item() for tensor in trainer.network.state_dict().values()]}
+    results.put((rank, skipped, applied))
+    dist.destroy_process_group()
+
+
+class DDPStepGuardTests(unittest.TestCase):
+    def test_nonfinite_loss_on_one_rank_skips_the_step_on_every_rank(self):
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            port = probe.getsockname()[1]
+        results = mp.get_context('spawn').SimpleQueue()
+        ranks = mp.start_processes(ddp_rank, args=(port, results), nprocs=2, join=False, start_method='spawn')
+        deadline = time.monotonic() + 120
+        while not ranks.join(timeout=5):
+            if time.monotonic() > deadline:
+                for process in ranks.processes:
+                    process.kill()
+                self.fail('DDP ranks did not finish: a rank is blocked in a collective')
+        outcomes = {rank: (skipped, applied) for rank, skipped, applied in (results.get() for _ in range(2))}
+
+        self.assertTrue(math.isfinite(outcomes[0][0]['record']['loss']))
+        self.assertTrue(math.isnan(outcomes[1][0]['record']['loss']))
+        for skipped, applied in outcomes.values():
+            self.assertFalse(skipped['record']['finite_loss'])
+            self.assertTrue(math.isnan(skipped['record']['grad_norm']))
+            self.assertEqual(skipped['changed'], [])
+            self.assertTrue(skipped['no_grads'])
+            self.assertTrue(applied['record']['finite_loss'])
+            self.assertTrue(math.isfinite(applied['record']['grad_norm']))
+            self.assertTrue(applied['changed'])
+        self.assertEqual(outcomes[0][1]['record']['grad_norm'], outcomes[1][1]['record']['grad_norm'])
+        self.assertEqual(outcomes[0][1]['weights'], outcomes[1][1]['weights'])
 
 
 class EpochStateTests(unittest.TestCase):

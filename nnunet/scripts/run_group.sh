@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Run a list of nnVeloxSeg experiments on the GPUs visible to one cluster job.
+# Run a list of nnVeloxSeg experiments on the node of one cluster job, one model at a time.
 # Task file: one "dataset_id configuration fold plans_identifier [nnUNetv2_train options]"
 # per line, e.g. append --c to resume; blank lines and lines starting with # are ignored.
-# Each task gets one GPU; tasks beyond the GPU count start as soon as an earlier
-# task frees its GPU.
+# CPU augmentation sets the training speed, so every task gets the whole node: DDP on
+# min(visible GPUs, batch size) GPUs with the augmentation workers per rank that
+# group_resources.py allows by CPU quota and measured memory. Tasks run in file order;
+# a failed task is reported and the next one starts.
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 tasks_file=$1
@@ -12,64 +14,55 @@ tasks_file=$1
 : "${nnUNet_results:?Set nnUNet_results to the experiment results directory}"
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
-# UUID selectors keep the platform's assignment when each child sees one GPU.
-mapfile -t gpus < <(python - <<'PY'
-import torch
-for index in range(torch.cuda.device_count()):
-    print(f'GPU-{torch.cuda.get_device_properties(index).uuid}')
-PY
-)
-if (( ${#gpus[@]} == 0 )); then
-    echo 'No visible GPU for this job.' >&2
+tasks=()
+while IFS= read -r line; do tasks+=("$line"); done < <(grep -vE '^[[:space:]]*(#|$)' "$tasks_file")
+if (( ${#tasks[@]} == 0 )); then
+    echo "No task in $tasks_file" >&2
     exit 2
 fi
-mapfile -t tasks < <(grep -vE '^[[:space:]]*(#|$)' "$tasks_file")
-# Reject malformed lines before any GPU work starts.
+# Reject malformed lines, missing plans and tasks without memory for one worker
+# before any GPU work starts.
 for line in "${tasks[@]}"; do
     read -ra fields <<< "$line"
-    plans_file=$(compgen -G "$nnUNet_preprocessed/Dataset$(printf '%03d' "${fields[0]}")_*/${fields[3]:-}.json" || true)
-    if (( ${#fields[@]} < 4 )) || [[ -z "$plans_file" ]]; then
-        echo "Invalid task or missing plans: $line" >&2
+    if (( ${#fields[@]} < 4 )) || ! python "$script_dir/group_resources.py" \
+            "${fields[0]}" "${fields[1]}" "${fields[3]}" > /dev/null; then
+        echo "Invalid task, missing plans or no memory for one worker: $line" >&2
         exit 2
     fi
 done
-# Share the job's CPUs between concurrent augmentation pools.
-workers=$(( $(nproc) / ${#gpus[@]} - 1 ))
-export nnUNet_n_proc_DA="${nnUNet_n_proc_DA:-$(( workers > 1 ? workers : 1 ))}"
 log_dir="$nnUNet_results/group_logs"
 mkdir -p "$log_dir"
-echo "GPUs=${#gpus[@]} tasks=${#tasks[@]} nnUNet_n_proc_DA=$nnUNet_n_proc_DA"
+echo "tasks=${#tasks[@]}"
 
-# Every task runs in its own session so an interrupt reaches nnUNetv2_train and
-# its augmentation workers, not only the wrapper shell.
-declare -A running=()
+# Each task runs in its own session so an interrupt reaches nnUNetv2_train, its DDP
+# ranks and their augmentation workers, not only the wrapper shell.
+pid=
 stop() {
-    for pid in "${running[@]}"; do kill -TERM -- "-$pid" 2>/dev/null || true; done
-    wait "${running[@]}" 2>/dev/null || true
+    if [[ -n "$pid" ]]; then
+        kill -TERM -- "-$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
     exit 130
 }
 trap stop INT TERM
-next=0
 status=0
-while (( next < ${#tasks[@]} || ${#running[@]} > 0 )); do
-    for slot in "${!gpus[@]}"; do
-        if [[ -z "${running[$slot]:-}" ]] && (( next < ${#tasks[@]} )); then
-            read -ra fields <<< "${tasks[$next]}"
-            name="${fields[0]}_${fields[3]}_${fields[1]}_fold${fields[2]}"
-            CUDA_VISIBLE_DEVICES="${gpus[$slot]}" setsid bash "$script_dir/run_experiment.sh" \
-                "${fields[@]}" >> "$log_dir/$name.log" 2>&1 &
-            running[$slot]=$!
-            echo "$(date '+%F %T') start $name on ${gpus[$slot]} pid=${running[$slot]}"
-            next=$((next + 1))
-        fi
-    done
-    sleep 30 & wait $!
-    for slot in "${!running[@]}"; do
-        pid=${running[$slot]}
-        kill -0 "$pid" 2>/dev/null && continue
-        if wait "$pid"; then result=ok; else result=failed; status=1; fi
-        echo "$(date '+%F %T') $result pid=$pid on ${gpus[$slot]}"
-        unset "running[$slot]"
-    done
+for line in "${tasks[@]}"; do
+    read -ra fields <<< "$line"
+    name="${fields[0]}_${fields[3]}_${fields[1]}_fold${fields[2]}"
+    if ! resources=$(python "$script_dir/group_resources.py" "${fields[0]}" "${fields[1]}" "${fields[3]}"); then
+        echo "$(date '+%F %T') failed $name: no resources"
+        status=1
+        continue
+    fi
+    read -r ranks cpu_workers memory_workers workers rank_gib devices <<< "$resources"
+    echo "$(date '+%F %T') start $name ranks=$ranks workers_by_cpu=$cpu_workers" \
+        "workers_by_memory=$memory_workers nnUNet_n_proc_DA=$workers memory_per_rank=${rank_gib}GiB on $devices"
+    # With no MASTER_PORT set, nnU-Net's run_training picks a free port for DDP.
+    nnUNet_n_proc_DA=$workers CUDA_VISIBLE_DEVICES=$devices setsid bash "$script_dir/run_experiment.sh" \
+        "${fields[@]}" -num_gpus "$ranks" >> "$log_dir/$name.log" 2>&1 &
+    pid=$!
+    if wait "$pid"; then result=ok; else result=failed; status=1; fi
+    pid=
+    echo "$(date '+%F %T') $result $name"
 done
 exit "$status"

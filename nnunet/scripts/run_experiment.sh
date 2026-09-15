@@ -23,7 +23,7 @@ output="$nnUNet_results/$dataset/nnVeloxSegTrainer__${plans}__${configuration}/f
 mkdir -p "$output"
 exec > >(tee -a "$output/stdout.log") 2>&1
 shift 4
-nnUNetv2_train "$dataset_id" "$configuration" "$fold" -tr nnVeloxSegTrainer -p "$plans" -num_gpus 1 "$@"
+nnUNetv2_train "$dataset_id" "$configuration" "$fold" -tr nnVeloxSegTrainer -p "$plans" "$@"
 if [[ ! -d "$nnUNet_raw/$dataset/imagesTs" ]]; then
     exit 0
 fi

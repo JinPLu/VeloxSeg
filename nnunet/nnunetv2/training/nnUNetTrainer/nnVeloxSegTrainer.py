@@ -4,14 +4,20 @@ import random
 
 import numpy as np
 import torch
+from batchgenerators.dataloading.nondet_multi_threaded_augmenter import NonDetMultiThreadedAugmenter
+from batchgenerators.dataloading.single_threaded_augmenter import SingleThreadedAugmenter
+from torch import distributed as dist
 from torch import nn
 
 from model.VeloxSeg import VeloxSeg
 from model.components.attention_utils import LayerNorm, PositionalEmbedding
 from model.loss import VeloxSegLoss
+from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader
+from nnunetv2.training.dataloading.nnunet_dataset import infer_dataset_class
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import segmentation_loss
 from nnunetv2.training.loss.dice import get_tp_fp_fn_tn
+from nnunetv2.utilities.default_n_proc_DA import get_allowed_n_proc_DA
 
 # Normalization modules whose affine parameters AdamW leaves undecayed when
 # decay_exclusions is set: VeloxSeg's channels-first LayerNorm plus every torch
@@ -27,6 +33,17 @@ NUMERIC_GUARD = {
     # batches failing is a broken model, not one bad case.
     'max_consecutive_skipped_steps': 32,
 }
+
+# Finished batches each augmenter queues ahead of the GPU; nnU-Net 2.8.1 uses
+# max(6, n_proc_DA // 2) for training and max(3, n_proc_DA // 4) for validation.
+# Every cached batch is held twice: once in the worker->main shared-memory queue
+# and once pinned (measured 15.6 GiB pinned + 7 GiB /dev/shm for one BraTS bs16
+# rank at 12 workers). Measured training is CPU-starved (BraTS 8-GPU DDP: GPU
+# 56-73% busy, CPU 6% idle), so the queue is empty at every step and its depth
+# adds no throughput. When workers outpace the GPU, two pinned batches plus the
+# one being pinned are ready, so the next step never waits. The validation
+# augmenter holds its queue idle through every training epoch.
+NUM_CACHED_BATCHES = 2
 
 
 class nnVeloxSegTrainer(nnUNetTrainer):
@@ -63,6 +80,78 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         # The shared loss resizes this one target to each native output grid,
         # including region/ignore channels. Standalone training uses the same path.
         return None
+
+    def get_dataloaders(self):
+        # nnU-Net 2.8.1 nnUNetTrainer.get_dataloaders line for line; only num_cached
+        # of both augmenters is NUM_CACHED_BATCHES (upstream exposes no other hook).
+        if self.dataset_class is None:
+            self.dataset_class = infer_dataset_class(self.preprocessed_dataset_folder)
+
+        # we use the patch size to determine whether we need 2D or 3D dataloaders. We also use it to determine whether
+        # we need to use dummy 2D augmentation (in case of 3D training) and what our initial patch size should be
+        patch_size = self.configuration_manager.patch_size
+
+        # needed for deep supervision: how much do we need to downscale the segmentation targets for the different
+        # outputs?
+        deep_supervision_scales = self._get_deep_supervision_scales()
+
+        (
+            rotation_for_DA,
+            do_dummy_2d_data_aug,
+            initial_patch_size,
+            mirror_axes,
+        ) = self.configure_rotation_dummyDA_mirroring_and_inital_patch_size()
+
+        # training pipeline
+        tr_transforms = self.get_training_transforms(
+            patch_size, rotation_for_DA, deep_supervision_scales, mirror_axes, do_dummy_2d_data_aug,
+            use_mask_for_norm=self.configuration_manager.use_mask_for_norm,
+            is_cascaded=self.is_cascaded, foreground_labels=self.label_manager.foreground_labels,
+            regions=self.label_manager.foreground_regions if self.label_manager.has_regions else None,
+            ignore_label=self.label_manager.ignore_label)
+
+        # validation pipeline
+        val_transforms = self.get_validation_transforms(deep_supervision_scales,
+                                                        is_cascaded=self.is_cascaded,
+                                                        foreground_labels=self.label_manager.foreground_labels,
+                                                        regions=self.label_manager.foreground_regions if
+                                                        self.label_manager.has_regions else None,
+                                                        ignore_label=self.label_manager.ignore_label)
+
+        dataset_tr, dataset_val = self.get_tr_and_val_datasets()
+        dl_tr = nnUNetDataLoader(dataset_tr, self.batch_size,
+                                 initial_patch_size,
+                                 self.configuration_manager.patch_size,
+                                 self.label_manager,
+                                 oversample_foreground_percent=self.oversample_foreground_percent,
+                                 sampling_probabilities=None, pad_sides=None, transforms=tr_transforms,
+                                 probabilistic_oversampling=self.probabilistic_oversampling)
+        dl_val = nnUNetDataLoader(dataset_val, self.batch_size,
+                                  self.configuration_manager.patch_size,
+                                  self.configuration_manager.patch_size,
+                                  self.label_manager,
+                                  oversample_foreground_percent=self.oversample_foreground_percent,
+                                  sampling_probabilities=None, pad_sides=None, transforms=val_transforms,
+                                  probabilistic_oversampling=self.probabilistic_oversampling)
+
+        allowed_num_processes = get_allowed_n_proc_DA()
+        if allowed_num_processes == 0:
+            mt_gen_train = SingleThreadedAugmenter(dl_tr, None)
+            mt_gen_val = SingleThreadedAugmenter(dl_val, None)
+        else:
+            mt_gen_train = NonDetMultiThreadedAugmenter(data_loader=dl_tr, transform=None,
+                                                        num_processes=allowed_num_processes,
+                                                        num_cached=NUM_CACHED_BATCHES, seeds=None,
+                                                        pin_memory=self.device.type == 'cuda', wait_time=0.002)
+            mt_gen_val = NonDetMultiThreadedAugmenter(data_loader=dl_val,
+                                                      transform=None, num_processes=max(1, allowed_num_processes // 2),
+                                                      num_cached=NUM_CACHED_BATCHES, seeds=None,
+                                                      pin_memory=self.device.type == 'cuda',
+                                                      wait_time=0.002)
+        # # let's get this party started
+        _ = next(mt_gen_train)
+        _ = next(mt_gen_val)
+        return mt_gen_train, mt_gen_val
 
     def _build_loss(self):
         loss = segmentation_loss(self.label_manager, self.configuration_manager.batch_dice, self.is_ddp)
@@ -134,14 +223,22 @@ class nnVeloxSegTrainer(nnUNetTrainer):
             output = self.network(data)
             terms = self.loss.terms(output, target, data)
         loss = sum(terms.values())
+        finite = torch.isfinite(loss.detach()).int()
+        if self.is_ddp:
+            # DDP's backward all-reduces gradients, so every rank must take the same
+            # branch: a non-finite loss on any rank skips the step on all ranks.
+            dist.all_reduce(finite, op=dist.ReduceOp.MIN)
         # Host sync 1 (replaces the former end-of-step loss.cpu()): the loss is
         # checked before backward.
-        values = torch.stack([loss.detach(), *(term.detach() for term in terms.values())]).cpu()
-        record = dict(zip(('loss', *terms), values.tolist()), grad_norm=math.nan)
-        if math.isfinite(record['loss']):
+        values = torch.stack([loss.detach(), *(term.detach() for term in terms.values()),
+                              finite.to(loss.dtype)]).cpu()
+        *losses, finite_loss = values.tolist()
+        record = dict(zip(('loss', *terms), losses), finite_loss=bool(finite_loss), grad_norm=math.nan)
+        if record['finite_loss']:
             loss.backward()
             # Host sync 2: the total norm is non-finite iff some gradient is inf/NaN
-            # (or its square sum overflows); such an update is refused.
+            # (or its square sum overflows); such an update is refused. Under DDP the
+            # gradients are already all-reduced, so every rank sees the same norm.
             record['grad_norm'] = nn.utils.clip_grad_norm_(
                 self.network.parameters(), NUMERIC_GUARD['max_grad_norm']).item()
             if math.isfinite(record['grad_norm']):
@@ -150,7 +247,7 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         applied = math.isfinite(record['grad_norm'])
         self.consecutive_skipped_steps = 0 if applied else self.consecutive_skipped_steps + 1
         if self.consecutive_skipped_steps > NUMERIC_GUARD['max_consecutive_skipped_steps']:
-            reason = 'non-finite gradient norm' if math.isfinite(record['loss']) else 'non-finite loss'
+            reason = 'non-finite gradient norm' if record['finite_loss'] else 'non-finite loss'
             self.fail(f"{self.consecutive_skipped_steps} consecutive optimizer steps were skipped "
                       f"(NUMERIC_GUARD max_consecutive_skipped_steps="
                       f"{NUMERIC_GUARD['max_consecutive_skipped_steps']}) at epoch {self.current_epoch}, "
@@ -166,7 +263,9 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         super().on_train_epoch_end(train_outputs)
         records = self.step_records
         norms = np.array([record['grad_norm'] for record in records if math.isfinite(record['grad_norm'])])
-        nonfinite_losses = sum(not math.isfinite(record['loss']) for record in records)
+        # Skip decisions are synchronized, so under DDP these counts hold for every
+        # rank; the loss-term means below are this rank's batches only.
+        nonfinite_losses = sum(not record['finite_loss'] for record in records)
         self.print_to_log_file(
             f'Optimizer steps applied: {len(norms)}, skipped: {len(records) - len(norms)} '
             f'(non-finite loss: {nonfinite_losses}, non-finite gradient norm: '
@@ -178,7 +277,7 @@ class nnVeloxSegTrainer(nnUNetTrainer):
                 f"{np.mean(norms > NUMERIC_GUARD['max_grad_norm']):.1%} of applied steps")
         summaries = []
         for name in records[0]:
-            if name in ('loss', 'grad_norm'):
+            if name in ('loss', 'finite_loss', 'grad_norm'):
                 continue
             values = np.array([record[name] for record in records])
             finite = np.isfinite(values)

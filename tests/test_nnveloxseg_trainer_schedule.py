@@ -1,12 +1,15 @@
 import math
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
+import torch
 from torch import nn
 
 from model.VeloxSeg import VeloxSeg
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import architecture_for_patch, training_policy
-from nnunetv2.training.nnUNetTrainer.nnVeloxSegTrainer import NORM_MODULES, nnVeloxSegTrainer
+from nnunetv2.training.nnUNetTrainer import nnVeloxSegTrainer as trainer_module
+from nnunetv2.training.nnUNetTrainer.nnVeloxSegTrainer import NORM_MODULES, NUM_CACHED_BATCHES, nnVeloxSegTrainer
 
 INITIAL_LR = 1e-3
 MINIMUM_LR = 6e-6
@@ -64,6 +67,34 @@ class ScheduleTests(unittest.TestCase):
     def test_warmup_must_leave_decay_epochs(self):
         with self.assertRaisesRegex(ValueError, 'warmup_updates'):
             configure(nn.Linear(2, 2), warmup_updates=PLANNED['total_updates'])
+
+
+class DataloaderCacheTests(unittest.TestCase):
+    def test_training_and_validation_augmenters_cache_the_same_small_queue(self):
+        augmenters = []
+
+        class Augmenter:
+            def __init__(self, **kwargs):
+                augmenters.append(kwargs)
+
+            def __next__(self):
+                return None
+
+        labels = SimpleNamespace(foreground_labels=[1], has_regions=False, foreground_regions=None, ignore_label=None)
+        stand_in = SimpleNamespace(
+            dataset_class=object, configuration_manager=SimpleNamespace(patch_size=[8, 8, 8], use_mask_for_norm=[False]),
+            _get_deep_supervision_scales=lambda: None,
+            configure_rotation_dummyDA_mirroring_and_inital_patch_size=lambda: (None, False, [8, 8, 8], None),
+            get_training_transforms=lambda *args, **kwargs: None, get_validation_transforms=lambda *args, **kwargs: None,
+            get_tr_and_val_datasets=lambda: (None, None), is_cascaded=False, label_manager=labels, batch_size=2,
+            oversample_foreground_percent=0.33, probabilistic_oversampling=False, device=torch.device('cuda'))
+        # 12 workers: upstream nnU-Net 2.8.1 would cache 6 training and 3 validation batches.
+        with mock.patch.multiple(trainer_module, NonDetMultiThreadedAugmenter=Augmenter,
+                                 nnUNetDataLoader=lambda *args, **kwargs: None, get_allowed_n_proc_DA=lambda: 12):
+            nnVeloxSegTrainer.get_dataloaders(stand_in)
+        self.assertEqual([(kwargs['num_processes'], kwargs['num_cached'], kwargs['pin_memory']) for kwargs in augmenters],
+                         [(12, NUM_CACHED_BATCHES, True), (6, NUM_CACHED_BATCHES, True)])
+        self.assertEqual(NUM_CACHED_BATCHES, 2)
 
 
 class DecayGroupTests(unittest.TestCase):

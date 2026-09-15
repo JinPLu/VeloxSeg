@@ -41,15 +41,20 @@ def bundled_configuration(dataset, size):
     return json.loads((CONFIG / dataset / 'nnVeloxSegPlans.json').read_text())['configurations'][f'3d_fullres_{size}']
 
 
-def voxel_memory(patch, batch):
-    """L training peak growing with batch voxels, out of memory (None) beyond an RTX 3090.
+# MiB of L training peak reserved memory per batch voxel, fitted to the RTX 3090
+# BF16 measurements of 2026-09-15: BraTS 160x192x96 batch 16 16.5 GiB (four-channel
+# MRI); AutoPET 256x320x320 batch 2 15.1 GiB and Hecktor 160x256x256 batch 4
+# 12.0 GiB (PET/CT), where Hecktor batch 8 (23.1 GiB) exceeds the 22 GiB budget
+# without running out of memory, as measured (22.9 GiB).
+MIB_PER_VOXEL = {BRATS: 3.3e-4, AUTOPET: 2.7e-4, HECKTOR: 2.7e-4}
 
-    The slope matches the RTX 3090 L measurement of AutoPET 256x320x256 at
-    batch 2 (18.67 GiB reserved, 2026-09-15); 256x320x320 at batch 2 then
-    exceeds the 22 GiB budget without running out of memory, as measured (22.50 GiB).
-    """
-    mib = 1024 + 4.31e-4 * batch * prod(patch)
-    return None if mib > DEVICE_MIB else mib
+
+def voxel_memory(dataset):
+    """L training peak growing with batch voxels, out of memory (None) beyond an RTX 3090."""
+    def memory(patch, batch):
+        mib = 1024 + MIB_PER_VOXEL[dataset] * batch * prod(patch)
+        return None if mib > DEVICE_MIB else mib
+    return memory
 
 
 def measured_profile(family, training_mib):
@@ -80,7 +85,7 @@ class MeasuredPlans(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.families = {dataset: candidate_manifest(planner_for(dataset)) for dataset in DATASETS}
-        cls.profiles = {dataset: measured_profile(cls.families[dataset], voxel_memory) for dataset in DATASETS}
+        cls.profiles = {dataset: measured_profile(cls.families[dataset], voxel_memory(dataset)) for dataset in DATASETS}
 
     def test_measured_memory_keeps_bundled_patch_and_batch(self):
         for dataset in DATASETS:
@@ -101,10 +106,14 @@ class MeasuredPlans(unittest.TestCase):
                     # The recorded rows reach the chosen batch and the first batch that does not fit.
                     measured = resources['measured_training_memory']
                     self.assertEqual(measured[-1]['batch'], 2 * configuration['batch_size'])
-                    self.assertTrue(measured[-1]['oom'])
+                    self.assertTrue(measured[-1]['oom']
+                                    or measured[-1]['peak_reserved_gib'] > resources['training_memory_budget_gib'])
 
     def test_untrainable_crop_is_measured_once_and_not_selected(self):
-        family, profile = self.families[AUTOPET], self.profiles[AUTOPET]
+        family = self.families[AUTOPET]
+        # 256x320x320 exceeds the 22 GiB budget at batch 2 without running out of memory.
+        profile = measured_profile(family, lambda patch, batch: 22.5 * 2 ** 10 if patch == [256, 320, 320]
+                                   else voxel_memory(AUTOPET)(patch, batch))
         self.assertEqual(training_batches(profile, [256, 320, 320]), [2])
         envelope, batches = measured_family(family, profile)
         self.assertNotIn('256x320x320', batches)
@@ -184,7 +193,7 @@ class MeasuredPlans(unittest.TestCase):
         dataset_json = json.loads((CONFIG / HECKTOR / 'dataset.json').read_text())
         dataset_json['labels'] = {**dataset_json['labels'], 'ignore': 2}
         planner = planner_for(HECKTOR, dataset_json)
-        plans = build_plans(planner, measured_profile(candidate_manifest(planner), voxel_memory))
+        plans = build_plans(planner, measured_profile(candidate_manifest(planner), voxel_memory(HECKTOR)))
         configuration = plans['configurations']['3d_fullres_B']
         self.assertEqual((configuration['patch_size'], configuration['batch_size']), ([160, 256, 256], 4))
 

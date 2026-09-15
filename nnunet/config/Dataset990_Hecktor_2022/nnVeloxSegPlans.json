@@ -273,19 +273,19 @@
             "model_size": "L",
             "batch": 2,
             "oom": false,
-            "peak_reserved_gib": 9.412109375
+            "peak_reserved_gib": 6.041015625
           },
           {
             "model_size": "L",
             "batch": 4,
             "oom": false,
-            "peak_reserved_gib": 18.6640625
+            "peak_reserved_gib": 11.9453125
           },
           {
             "model_size": "L",
             "batch": 8,
-            "oom": true,
-            "peak_reserved_gib": 23.361328125
+            "oom": false,
+            "peak_reserved_gib": 22.859375
           }
         ],
         "patch_selection": {
@@ -307,8 +307,8 @@
                 256
               ],
               "coverage_fraction": 1.0,
-              "m1_mib": 685.3037109375,
-              "t1_ms": 30.58176040649414,
+              "m1_mib": 226.66357421875,
+              "t1_ms": 24.227839469909668,
               "trainable": true,
               "pareto": true,
               "selected": true
@@ -320,8 +320,8 @@
                 192
               ],
               "coverage_fraction": 0.75,
-              "m1_mib": 715.70263671875,
-              "t1_ms": 29.413375854492188,
+              "m1_mib": 175.73828125,
+              "t1_ms": 23.00723171234131,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -333,8 +333,8 @@
                 160
               ],
               "coverage_fraction": 0.625,
-              "m1_mib": 509.4609375,
-              "t1_ms": 23.427583694458008,
+              "m1_mib": 140.1630859375,
+              "t1_ms": 25.02092742919922,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -346,8 +346,8 @@
                 256
               ],
               "coverage_fraction": 0.75,
-              "m1_mib": 715.70263671875,
-              "t1_ms": 30.1593599319458,
+              "m1_mib": 175.73828125,
+              "t1_ms": 22.609408378601074,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -359,10 +359,10 @@
                 192
               ],
               "coverage_fraction": 0.5625,
-              "m1_mib": 763.466796875,
-              "t1_ms": 27.405823707580566,
+              "m1_mib": 139.9482421875,
+              "t1_ms": 20.958720207214355,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -372,10 +372,10 @@
                 160
               ],
               "coverage_fraction": 0.46875,
-              "m1_mib": 538.44384765625,
-              "t1_ms": 23.096320152282715,
+              "m1_mib": 108.564453125,
+              "t1_ms": 17.709056854248047,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -385,8 +385,8 @@
                 256
               ],
               "coverage_fraction": 0.625,
-              "m1_mib": 509.4609375,
-              "t1_ms": 23.68870449066162,
+              "m1_mib": 140.1630859375,
+              "t1_ms": 18.08945655822754,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -398,8 +398,8 @@
                 224
               ],
               "coverage_fraction": 0.546875,
-              "m1_mib": 712.48828125,
-              "t1_ms": 22.758399963378906,
+              "m1_mib": 124.49462890625,
+              "t1_ms": 17.448959350585938,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -411,8 +411,8 @@
                 192
               ],
               "coverage_fraction": 0.46875,
-              "m1_mib": 538.44384765625,
-              "t1_ms": 22.270976066589355,
+              "m1_mib": 108.564453125,
+              "t1_ms": 17.12844753265381,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -424,8 +424,8 @@
                 256
               ],
               "coverage_fraction": 0.8,
-              "m1_mib": 473.5673828125,
-              "t1_ms": 30.920191764831543,
+              "m1_mib": 187.3212890625,
+              "t1_ms": 22.25152015686035,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -437,8 +437,8 @@
                 192
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 29.24287986755371,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.83833599090576,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -450,8 +450,8 @@
                 160
               ],
               "coverage_fraction": 0.5,
-              "m1_mib": 347.85107421875,
-              "t1_ms": 23.08608055114746,
+              "m1_mib": 113.30908203125,
+              "t1_ms": 18.08076763153076,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -463,8 +463,8 @@
                 256
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 28.111360549926758,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.797887802124023,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -476,10 +476,10 @@
                 192
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 30.135295867919922,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 21.772799491882324,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -489,8 +489,8 @@
                 160
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 361.56005859375,
-              "t1_ms": 21.321215629577637,
+              "m1_mib": 88.12060546875,
+              "t1_ms": 16.58470344543457,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -502,8 +502,8 @@
                 256
               ],
               "coverage_fraction": 0.5,
-              "m1_mib": 347.85107421875,
-              "t1_ms": 23.185919761657715,
+              "m1_mib": 113.30908203125,
+              "t1_ms": 17.654784202575684,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -515,8 +515,8 @@
                 224
               ],
               "coverage_fraction": 0.4375,
-              "m1_mib": 874.70703125,
-              "t1_ms": 21.78764820098877,
+              "m1_mib": 105.75634765625,
+              "t1_ms": 16.76748752593994,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -528,8 +528,8 @@
                 192
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 361.56005859375,
-              "t1_ms": 21.06675148010254,
+              "m1_mib": 88.12060546875,
+              "t1_ms": 16.37939167022705,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -541,8 +541,8 @@
                 256
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 27.933696746826172,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.27308750152588,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -554,8 +554,8 @@
                 192
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 27.97875213623047,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 26.017791748046875,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -567,8 +567,8 @@
                 160
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 362.67138671875,
-              "t1_ms": 23.044608116149902,
+              "m1_mib": 88.22216796875,
+              "t1_ms": 25.657344818115234,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -580,8 +580,8 @@
                 256
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 28.361727714538574,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 27.577343940734863,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -593,10 +593,10 @@
                 192
               ],
               "coverage_fraction": 0.3375,
-              "m1_mib": 138.76171875,
-              "t1_ms": 29.065216064453125,
+              "m1_mib": 93.30126953125,
+              "t1_ms": 27.257344245910645,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -606,10 +606,10 @@
                 160
               ],
               "coverage_fraction": 0.28125,
-              "m1_mib": 385.6328125,
-              "t1_ms": 21.936640739440918,
+              "m1_mib": 70.35205078125,
+              "t1_ms": 21.315072059631348,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -619,8 +619,8 @@
                 256
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 362.67138671875,
-              "t1_ms": 25.68550395965576,
+              "m1_mib": 88.22216796875,
+              "t1_ms": 22.039040565490723,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -632,10 +632,10 @@
                 224
               ],
               "coverage_fraction": 0.328125,
-              "m1_mib": 513.3369140625,
-              "t1_ms": 21.838848114013672,
+              "m1_mib": 79.34326171875,
+              "t1_ms": 22.319104194641113,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -645,8 +645,8 @@
                 192
               ],
               "coverage_fraction": 0.28125,
-              "m1_mib": 385.6328125,
-              "t1_ms": 21.33350372314453,
+              "m1_mib": 70.35205078125,
+              "t1_ms": 21.05087947845459,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -960,19 +960,19 @@
             "model_size": "L",
             "batch": 2,
             "oom": false,
-            "peak_reserved_gib": 9.412109375
+            "peak_reserved_gib": 6.041015625
           },
           {
             "model_size": "L",
             "batch": 4,
             "oom": false,
-            "peak_reserved_gib": 18.6640625
+            "peak_reserved_gib": 11.9453125
           },
           {
             "model_size": "L",
             "batch": 8,
-            "oom": true,
-            "peak_reserved_gib": 23.361328125
+            "oom": false,
+            "peak_reserved_gib": 22.859375
           }
         ],
         "patch_selection": {
@@ -994,8 +994,8 @@
                 256
               ],
               "coverage_fraction": 1.0,
-              "m1_mib": 685.3037109375,
-              "t1_ms": 30.58176040649414,
+              "m1_mib": 226.66357421875,
+              "t1_ms": 24.227839469909668,
               "trainable": true,
               "pareto": true,
               "selected": true
@@ -1007,8 +1007,8 @@
                 192
               ],
               "coverage_fraction": 0.75,
-              "m1_mib": 715.70263671875,
-              "t1_ms": 29.413375854492188,
+              "m1_mib": 175.73828125,
+              "t1_ms": 23.00723171234131,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1020,8 +1020,8 @@
                 160
               ],
               "coverage_fraction": 0.625,
-              "m1_mib": 509.4609375,
-              "t1_ms": 23.427583694458008,
+              "m1_mib": 140.1630859375,
+              "t1_ms": 25.02092742919922,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1033,8 +1033,8 @@
                 256
               ],
               "coverage_fraction": 0.75,
-              "m1_mib": 715.70263671875,
-              "t1_ms": 30.1593599319458,
+              "m1_mib": 175.73828125,
+              "t1_ms": 22.609408378601074,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1046,10 +1046,10 @@
                 192
               ],
               "coverage_fraction": 0.5625,
-              "m1_mib": 763.466796875,
-              "t1_ms": 27.405823707580566,
+              "m1_mib": 139.9482421875,
+              "t1_ms": 20.958720207214355,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1059,10 +1059,10 @@
                 160
               ],
               "coverage_fraction": 0.46875,
-              "m1_mib": 538.44384765625,
-              "t1_ms": 23.096320152282715,
+              "m1_mib": 108.564453125,
+              "t1_ms": 17.709056854248047,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1072,8 +1072,8 @@
                 256
               ],
               "coverage_fraction": 0.625,
-              "m1_mib": 509.4609375,
-              "t1_ms": 23.68870449066162,
+              "m1_mib": 140.1630859375,
+              "t1_ms": 18.08945655822754,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1085,8 +1085,8 @@
                 224
               ],
               "coverage_fraction": 0.546875,
-              "m1_mib": 712.48828125,
-              "t1_ms": 22.758399963378906,
+              "m1_mib": 124.49462890625,
+              "t1_ms": 17.448959350585938,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1098,8 +1098,8 @@
                 192
               ],
               "coverage_fraction": 0.46875,
-              "m1_mib": 538.44384765625,
-              "t1_ms": 22.270976066589355,
+              "m1_mib": 108.564453125,
+              "t1_ms": 17.12844753265381,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1111,8 +1111,8 @@
                 256
               ],
               "coverage_fraction": 0.8,
-              "m1_mib": 473.5673828125,
-              "t1_ms": 30.920191764831543,
+              "m1_mib": 187.3212890625,
+              "t1_ms": 22.25152015686035,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1124,8 +1124,8 @@
                 192
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 29.24287986755371,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.83833599090576,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1137,8 +1137,8 @@
                 160
               ],
               "coverage_fraction": 0.5,
-              "m1_mib": 347.85107421875,
-              "t1_ms": 23.08608055114746,
+              "m1_mib": 113.30908203125,
+              "t1_ms": 18.08076763153076,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1150,8 +1150,8 @@
                 256
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 28.111360549926758,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.797887802124023,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1163,10 +1163,10 @@
                 192
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 30.135295867919922,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 21.772799491882324,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -1176,8 +1176,8 @@
                 160
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 361.56005859375,
-              "t1_ms": 21.321215629577637,
+              "m1_mib": 88.12060546875,
+              "t1_ms": 16.58470344543457,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1189,8 +1189,8 @@
                 256
               ],
               "coverage_fraction": 0.5,
-              "m1_mib": 347.85107421875,
-              "t1_ms": 23.185919761657715,
+              "m1_mib": 113.30908203125,
+              "t1_ms": 17.654784202575684,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1202,8 +1202,8 @@
                 224
               ],
               "coverage_fraction": 0.4375,
-              "m1_mib": 874.70703125,
-              "t1_ms": 21.78764820098877,
+              "m1_mib": 105.75634765625,
+              "t1_ms": 16.76748752593994,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1215,8 +1215,8 @@
                 192
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 361.56005859375,
-              "t1_ms": 21.06675148010254,
+              "m1_mib": 88.12060546875,
+              "t1_ms": 16.37939167022705,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1228,8 +1228,8 @@
                 256
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 27.933696746826172,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.27308750152588,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1241,8 +1241,8 @@
                 192
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 27.97875213623047,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 26.017791748046875,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1254,8 +1254,8 @@
                 160
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 362.67138671875,
-              "t1_ms": 23.044608116149902,
+              "m1_mib": 88.22216796875,
+              "t1_ms": 25.657344818115234,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1267,8 +1267,8 @@
                 256
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 28.361727714538574,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 27.577343940734863,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1280,10 +1280,10 @@
                 192
               ],
               "coverage_fraction": 0.3375,
-              "m1_mib": 138.76171875,
-              "t1_ms": 29.065216064453125,
+              "m1_mib": 93.30126953125,
+              "t1_ms": 27.257344245910645,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -1293,10 +1293,10 @@
                 160
               ],
               "coverage_fraction": 0.28125,
-              "m1_mib": 385.6328125,
-              "t1_ms": 21.936640739440918,
+              "m1_mib": 70.35205078125,
+              "t1_ms": 21.315072059631348,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1306,8 +1306,8 @@
                 256
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 362.67138671875,
-              "t1_ms": 25.68550395965576,
+              "m1_mib": 88.22216796875,
+              "t1_ms": 22.039040565490723,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1319,10 +1319,10 @@
                 224
               ],
               "coverage_fraction": 0.328125,
-              "m1_mib": 513.3369140625,
-              "t1_ms": 21.838848114013672,
+              "m1_mib": 79.34326171875,
+              "t1_ms": 22.319104194641113,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1332,8 +1332,8 @@
                 192
               ],
               "coverage_fraction": 0.28125,
-              "m1_mib": 385.6328125,
-              "t1_ms": 21.33350372314453,
+              "m1_mib": 70.35205078125,
+              "t1_ms": 21.05087947845459,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1647,19 +1647,19 @@
             "model_size": "L",
             "batch": 2,
             "oom": false,
-            "peak_reserved_gib": 9.412109375
+            "peak_reserved_gib": 6.041015625
           },
           {
             "model_size": "L",
             "batch": 4,
             "oom": false,
-            "peak_reserved_gib": 18.6640625
+            "peak_reserved_gib": 11.9453125
           },
           {
             "model_size": "L",
             "batch": 8,
-            "oom": true,
-            "peak_reserved_gib": 23.361328125
+            "oom": false,
+            "peak_reserved_gib": 22.859375
           }
         ],
         "patch_selection": {
@@ -1681,8 +1681,8 @@
                 256
               ],
               "coverage_fraction": 1.0,
-              "m1_mib": 685.3037109375,
-              "t1_ms": 30.58176040649414,
+              "m1_mib": 226.66357421875,
+              "t1_ms": 24.227839469909668,
               "trainable": true,
               "pareto": true,
               "selected": true
@@ -1694,8 +1694,8 @@
                 192
               ],
               "coverage_fraction": 0.75,
-              "m1_mib": 715.70263671875,
-              "t1_ms": 29.413375854492188,
+              "m1_mib": 175.73828125,
+              "t1_ms": 23.00723171234131,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1707,8 +1707,8 @@
                 160
               ],
               "coverage_fraction": 0.625,
-              "m1_mib": 509.4609375,
-              "t1_ms": 23.427583694458008,
+              "m1_mib": 140.1630859375,
+              "t1_ms": 25.02092742919922,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1720,8 +1720,8 @@
                 256
               ],
               "coverage_fraction": 0.75,
-              "m1_mib": 715.70263671875,
-              "t1_ms": 30.1593599319458,
+              "m1_mib": 175.73828125,
+              "t1_ms": 22.609408378601074,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1733,10 +1733,10 @@
                 192
               ],
               "coverage_fraction": 0.5625,
-              "m1_mib": 763.466796875,
-              "t1_ms": 27.405823707580566,
+              "m1_mib": 139.9482421875,
+              "t1_ms": 20.958720207214355,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1746,10 +1746,10 @@
                 160
               ],
               "coverage_fraction": 0.46875,
-              "m1_mib": 538.44384765625,
-              "t1_ms": 23.096320152282715,
+              "m1_mib": 108.564453125,
+              "t1_ms": 17.709056854248047,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1759,8 +1759,8 @@
                 256
               ],
               "coverage_fraction": 0.625,
-              "m1_mib": 509.4609375,
-              "t1_ms": 23.68870449066162,
+              "m1_mib": 140.1630859375,
+              "t1_ms": 18.08945655822754,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1772,8 +1772,8 @@
                 224
               ],
               "coverage_fraction": 0.546875,
-              "m1_mib": 712.48828125,
-              "t1_ms": 22.758399963378906,
+              "m1_mib": 124.49462890625,
+              "t1_ms": 17.448959350585938,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1785,8 +1785,8 @@
                 192
               ],
               "coverage_fraction": 0.46875,
-              "m1_mib": 538.44384765625,
-              "t1_ms": 22.270976066589355,
+              "m1_mib": 108.564453125,
+              "t1_ms": 17.12844753265381,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1798,8 +1798,8 @@
                 256
               ],
               "coverage_fraction": 0.8,
-              "m1_mib": 473.5673828125,
-              "t1_ms": 30.920191764831543,
+              "m1_mib": 187.3212890625,
+              "t1_ms": 22.25152015686035,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1811,8 +1811,8 @@
                 192
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 29.24287986755371,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.83833599090576,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1824,8 +1824,8 @@
                 160
               ],
               "coverage_fraction": 0.5,
-              "m1_mib": 347.85107421875,
-              "t1_ms": 23.08608055114746,
+              "m1_mib": 113.30908203125,
+              "t1_ms": 18.08076763153076,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1837,8 +1837,8 @@
                 256
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 28.111360549926758,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.797887802124023,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1850,10 +1850,10 @@
                 192
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 30.135295867919922,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 21.772799491882324,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -1863,8 +1863,8 @@
                 160
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 361.56005859375,
-              "t1_ms": 21.321215629577637,
+              "m1_mib": 88.12060546875,
+              "t1_ms": 16.58470344543457,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1876,8 +1876,8 @@
                 256
               ],
               "coverage_fraction": 0.5,
-              "m1_mib": 347.85107421875,
-              "t1_ms": 23.185919761657715,
+              "m1_mib": 113.30908203125,
+              "t1_ms": 17.654784202575684,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1889,8 +1889,8 @@
                 224
               ],
               "coverage_fraction": 0.4375,
-              "m1_mib": 874.70703125,
-              "t1_ms": 21.78764820098877,
+              "m1_mib": 105.75634765625,
+              "t1_ms": 16.76748752593994,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1902,8 +1902,8 @@
                 192
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 361.56005859375,
-              "t1_ms": 21.06675148010254,
+              "m1_mib": 88.12060546875,
+              "t1_ms": 16.37939167022705,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1915,8 +1915,8 @@
                 256
               ],
               "coverage_fraction": 0.6,
-              "m1_mib": 300.6923828125,
-              "t1_ms": 27.933696746826172,
+              "m1_mib": 146.9501953125,
+              "t1_ms": 21.27308750152588,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1928,8 +1928,8 @@
                 192
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 27.97875213623047,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 26.017791748046875,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1941,8 +1941,8 @@
                 160
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 362.67138671875,
-              "t1_ms": 23.044608116149902,
+              "m1_mib": 88.22216796875,
+              "t1_ms": 25.657344818115234,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1954,8 +1954,8 @@
                 256
               ],
               "coverage_fraction": 0.45,
-              "m1_mib": 198.28466796875,
-              "t1_ms": 28.361727714538574,
+              "m1_mib": 115.2841796875,
+              "t1_ms": 27.577343940734863,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1967,10 +1967,10 @@
                 192
               ],
               "coverage_fraction": 0.3375,
-              "m1_mib": 138.76171875,
-              "t1_ms": 29.065216064453125,
+              "m1_mib": 93.30126953125,
+              "t1_ms": 27.257344245910645,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -1980,10 +1980,10 @@
                 160
               ],
               "coverage_fraction": 0.28125,
-              "m1_mib": 385.6328125,
-              "t1_ms": 21.936640739440918,
+              "m1_mib": 70.35205078125,
+              "t1_ms": 21.315072059631348,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1993,8 +1993,8 @@
                 256
               ],
               "coverage_fraction": 0.375,
-              "m1_mib": 362.67138671875,
-              "t1_ms": 25.68550395965576,
+              "m1_mib": 88.22216796875,
+              "t1_ms": 22.039040565490723,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -2006,10 +2006,10 @@
                 224
               ],
               "coverage_fraction": 0.328125,
-              "m1_mib": 513.3369140625,
-              "t1_ms": 21.838848114013672,
+              "m1_mib": 79.34326171875,
+              "t1_ms": 22.319104194641113,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -2019,8 +2019,8 @@
                 192
               ],
               "coverage_fraction": 0.28125,
-              "m1_mib": 385.6328125,
-              "t1_ms": 21.33350372314453,
+              "m1_mib": 70.35205078125,
+              "t1_ms": 21.05087947845459,
               "trainable": true,
               "pareto": false,
               "selected": false

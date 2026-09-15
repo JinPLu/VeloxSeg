@@ -14,9 +14,9 @@ Attention (PWA), and reconstruction-based knowledge transfer.
 ![VeloxSeg overview](fig/Overview.png)
 
 This branch integrates VeloxSeg with nnU-Net v2 preprocessing, augmentation,
-training, checkpoints and sliding-window inference. S/B/L start at **8/16/24
-channels** and share one automatically planned patch per dataset. The default
-training batch is **8**, with a **24 GiB** planning target.
+training, checkpoints and sliding-window inference. S/B/L start at **16
+channels** and share one automatically planned patch and batch per dataset,
+with a **24 GiB** planning target.
 
 The original standalone implementation and reported paper results are available
 on [master](https://github.com/JinPLu/VeloxSeg/tree/master). This branch uses a
@@ -44,19 +44,31 @@ export nnUNet_compile=false
 Prepare images and labels in nnU-Net format. Bundled metadata and folds are in
 [nnunet/config](nnunet/config/); use these folds only with matching case IDs.
 
-| Dataset | ID | Channel order | Shared S/B/L patch |
+| Dataset | ID | Channel order | Shared S/B/L patch / batch |
 |---|---:|---|---|
-| BraTS2021 | 137 | T1, T1ce, T2, FLAIR | 160×192×160 |
-| AutoPET-II | 221 | PET, CT | 160×224×224 |
-| Hecktor2022 | 990 | PET, CT | 160×256×256 |
+| BraTS2021 | 137 | T1, T1ce, T2, FLAIR | 160×192×160 / 8 |
+| AutoPET-II | 221 | PET, CT | 256×320×256 / 2 |
+| Hecktor2022 | 990 | PET, CT | 160×256×256 / 4 |
 
-Patches are generated from the supplied fingerprints and memory target.
+Patches and batches are generated from the supplied fingerprints, memory target
+and a batch-1 cost profile measured on RTX 3090.
 Your dataset may produce a different configuration.
 
 ## Training
 
 ```bash
-# Generate S/B/L plans and preprocess once (the tiers share a cache).
+# Measure candidate crops on the target CUDA GPU, then generate S/B/L plans and
+# preprocess once (the tiers share a cache).
+nnUNetv2_extract_fingerprint -d 990
+python -m nnunetv2.experiment_planning.experiment_planners.veloxseg_planner candidates \
+  --dataset-name Dataset990_Hecktor_2022 \
+  --dataset-json "$nnUNet_raw/Dataset990_Hecktor_2022/dataset.json" \
+  --fingerprint "$nnUNet_preprocessed/Dataset990_Hecktor_2022/dataset_fingerprint.json" \
+  --gpu-memory-target-in-gb 24 \
+  --output "$nnUNet_preprocessed/Dataset990_Hecktor_2022/veloxseg_candidates.json"
+python nnunet/cost_profile.py \
+  --candidates "$nnUNet_preprocessed/Dataset990_Hecktor_2022/veloxseg_candidates.json" \
+  --output "$nnUNet_preprocessed/Dataset990_Hecktor_2022/veloxseg_profile.json"
 nnUNetv2_plan_and_preprocess -d 990 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
 
 # Train B on fold 4. Replace B with S or L to choose another size.
@@ -64,7 +76,7 @@ nnUNetv2_train 990 3d_fullres_B 4 -tr nnVeloxSegTrainer -p nnVeloxSegPlans -num_
 ```
 
 Add `--c` to resume an existing run. For training followed by held-out test
-prediction and evaluation, use `bash nnunet/scripts/run_experiment.sh 990 B`.
+prediction and evaluation, use `bash nnunet/scripts/run_experiment.sh 990 3d_fullres_B 4 nnVeloxSegPlans`.
 See the [experiment guide](nnunet/EXPERIMENTS.md) for six BraTS/AutoPET runs
 and the five Hecktor reference/auto configurations.
 
@@ -81,9 +93,10 @@ predictions against `labelsTs` and writes `test_summary.json`.
 
 ## Validation
 
-BraTS, AutoPET and Hecktor S/B/L passed RTX3090 checks with real data, full planned
-patches and batch8: short training, validation, checkpoint resume and whole-case
-prediction. Long-run convergence and segmentation accuracy remain unverified;
+With the previous batch8 plans, BraTS, AutoPET and Hecktor S/B/L passed RTX3090
+checks with real data and full planned patches: short training, validation,
+checkpoint resume and whole-case prediction. The current plans have not been
+trained yet. Long-run convergence and segmentation accuracy remain unverified;
 pretrained weights for this branch are not yet available.
 
 See [usage](nnunet/README.md) and [planning rules and measured evidence](nnunet/RULES.md)

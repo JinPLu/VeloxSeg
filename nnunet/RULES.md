@@ -1,7 +1,8 @@
 # VeloxSeg with nnU-Net: general planning and training rules
 
 The v2 planner generates single-GPU **3D full-resolution** configurations from
-nnU-Net dataset metadata and a training memory target. Inference efficiency is
+nnU-Net dataset metadata, a training memory target and a measured batch-1 CUDA
+cost profile. Inference efficiency is
 budgeted separately at batch size 1; it does not include training-only losses,
 gradients or optimizer state. It directly instantiates the public
 [VeloxSeg model](../model/VeloxSeg.py). Dataset names do not select architecture
@@ -13,12 +14,16 @@ The [planner](nnunetv2/experiment_planning/experiment_planners/veloxseg_planner.
 uses this same policy for native commands and exported fingerprints. Generated
 plans contain complete stages, training settings and the resource-estimate method.
 
-**Current status:** the planner now holds the training batch fixed at **8**,
-as requested, and shrinks the patch until its reference-based tensor estimate
-fits22GiB inside the24GiB target, reserving2GiB for measured error/runtime costs.
-Batch4 is the comparison setting. It does not fill leftover memory by increasing
-batch further. The S/B/L family uses base channels8/16/24, with B as the reference.
-All three share geometry selected against the largest member. This is a concrete memory-pressure experiment, not proof of
+**Current status:** candidate crops reduce each axis of nnU-Net's initial envelope
+by 0/1/2 stride-alignment units. A crop is trainable when L's reference-based tensor
+estimate at batch 2 fits 22 GiB inside the 24 GiB target, reserving 2 GiB for
+measured error/runtime costs. Among Pareto crops on coverage, B's measured batch-1
+peak memory M1 and latency t1 that cover at least `coverage_fraction` (1.0 by
+default) of the largest trainable crop, the least M1 wins. The batch is then the
+largest power of two ≥2 within the memory target and the 5% dataset-voxel cap.
+The S/B/L family uses base channels 16 (cap 128): S has one 3×3 convolution branch,
+B 1/3/5 branches and L convolution and attention depth 2, with B as the reference.
+All three share geometry and batch selected against the largest member. This is not proof of
 an optimal lightweight configuration.96³ remains a historical reference only.
 
 **Interpretation agreed on2026-09-09:** continue with the new larger-patch
@@ -80,6 +85,8 @@ after user feedback: concurrent jobs interleaved those lines in platform stdout.
 
 ### S/B/L family (2026-09-09)
 
+*Historical: previous fixed-batch planner.*
+
 Use width multipliers0.5/1/1.5 around the established base16 B reference:
 S starts at8 channels (cap160), B at16 (cap320), L at24 (cap480). Keep one
 JLC/PWA block per stage, decoder block depth1, FFN expansion2, dropout0 and
@@ -133,6 +140,8 @@ one shared geometry for the entire family. Do not choose a tier from FLOPs alone
 
 ### Measured S/B/L batch1 inference
 
+*Historical: previous fixed-batch planner.*
+
 The AutoPET rows below retain the earlier192×256×256/five-stage measurements.
 They do not measure the corrected160×224×224/four-stage models. All timings
 also precede the FP32 input-embedding fix; BraTS geometry is unchanged, but its
@@ -180,6 +189,8 @@ Passing batch1 inference does not validate L's estimated batch8 training fit.
 
 ### Fixed batch4 versus batch8
 
+*Historical: previous fixed-batch planner.*
+
 Same fingerprints,24GiB target, base16, architecture/training rules. Counts use
 batch1 evaluation; FLOPs cover PyTorch's registered operations, not GPU latency.
 
@@ -204,6 +215,8 @@ architecture comparison. No automatic LR scaling or long training is launched.
 
 ### Native training-update timing
 
+*Historical: previous fixed-batch planner.*
+
 A separate timing pass measures through `train_step` and CUDA synchronization,
 excluding the extra per-parameter finite-gradient inspection. Discard the first
 cuDNN/optimizer startup update; the two subsequent updates average:
@@ -222,6 +235,8 @@ excluded. The original memory reports' step timings included extra numerical
 inspection and must not be used for this training-speed comparison.
 
 ### Native sliding-window speed versus the historical96³ reference
+
+*Historical: previous fixed-batch planner.*
 
 On the same RTX3090GPU4, compare one326×400×400 synthetic preprocessed volume
 (the AutoPET fingerprint median), batch1, tile step0.5, Gaussian blending, no TTA,
@@ -246,7 +261,9 @@ Do not interpret a single-patch FLOP reduction as a whole-case speedup.
 
 ### Patch growth and capacity coupling
 
-All rows below use the current automatic rule, PET/CT input, base channels16,
+*Historical: previous fixed-batch planner.*
+
+All rows below use the then-current automatic rule, PET/CT input, base channels16,
 identical spacing and batch1 evaluation. They do **not** compare historical
 checkpoints or isolate patch size from stage changes.
 
@@ -287,14 +304,14 @@ channel groups + labels + nnUNet fingerprint + memory target
 | Decision | General rule and reason |
 |---|---|
 | Image geometry | Reuse nnUNet's target-spacing, transpose, normalization and resampling methods. Start the patch search from its inverse-spacing aspect ratio and 256³-volume envelope, clipped to median resampled shape. |
-| Spatial hierarchy | Reuse nnUNet axis-pooling geometry, but combine its first two pooling transitions into VeloxSeg’s compact stem (normally stride 4). Keep at least one later decoder transition for small inputs. Later strides and total stage count remain geometry-driven; minimum terminal edge 4 is an empirical prior. |
+| Spatial hierarchy | Reuse nnUNet axis-pooling geometry, but combine its first two pooling transitions into VeloxSeg’s compact stem (normally stride 4). Keep at least one later decoder transition for small inputs. Later strides and total stage count remain geometry-driven; minimum feature edge 3 matches the released 96³ model's 3³ terminal grid. |
 | Finest features | JLC and PWA both start at the compact stem grid. PixelShuffle produces full-resolution segmentation/reconstruction. Fullres preprocessing does not require a stride-1 feature stream. The earlier full-resolution stem was withdrawn after measured memory regression. |
-| Capacity | Start at 16 channels, double by stage, cap at 320. One residual JLC block per stage, one PWA block per stage, one JLC block per decoder stage; FFN expansion 2, dropout 0. These are provisional template priors; lightweight performance has not been established. |
-| JLC geometry | Parallel kernels 1/3/5 follow nnUNet's anisotropic kernel axes. The group-width lower bound is `max(4, ceil(log2(input_channels * cumulative_volume_stride + 1)))`; choose the smallest legal channel divisor at least that large, capped by stage width. This is a JL-inspired heuristic, not a fitted accuracy guarantee. |
-| PWA geometry | Choose the largest common power-of-two scale ratio leaving each minimum big-window edge at least 4. Paired windows then expand to exact global coverage. Use the finest divisor pooling keeping each token-grid edge at most 7, the upper end of the inherited terminal-grid range. This bounded local grid keeps attention cost from growing quadratically with the whole input. |
-| PWA channels | `max(1, channels // 32)` heads, head dimension equal to the stage's group width. Allow internal QK/V projection expansion; do not widen the whole backbone just for PWA divisibility. Attention uses PyTorch SDPA with the same relative-position bias. |
-| Patch selection | Rebuild geometry and PWA for every candidate. Reduce the most overrepresented axis relative to median shape; recompute alignment before subtracting so legal sizes such as 224 are not skipped. Stop at the first feasible candidate on this deterministic search path; this is not an exhaustive optimum search. |
-| Batch | Hold the requested training batch fixed (default8; comparison4), and shrink patch against the24GiB reference-based estimate. Do not increase batch after planning. |
+| Capacity | Start at 16 channels, double by stage, cap at 128. S uses one 3×3 convolution branch, B parallel 1/3/5 branches, L convolution and attention depth 2 per stage; convolution/attention expansions 3/3/2/2 by stage; dropout 0.1. These are provisional template priors; lightweight performance has not been established. |
+| JLC geometry | Parallel kernels follow nnUNet's anisotropic kernel axes. The group width interpolates the released 96³ model's cumulative-compression anchors (2^6, 4), (2^9, 8), (2^12, 8), (2^15, 16) on log scales, clamped beyond them, then rounds up to a channel divisor capped by stage width. This is a JL-inspired heuristic, not a fitted accuracy guarantee. |
+| PWA geometry | The base big window tiles each axis of the stage grid with a power-of-two ratio and at least 2 positions. Among windows whose token mismatch to the reference 27/216/27 is within 4× of the best achievable, choose the most physically balanced, then nearest tokens, more scales, lexicographic order. Windows then double per axis to exact global coverage; the last stage attends over its whole grid. Pooling windows are 1×1×1. This bounded local grid keeps attention cost from growing quadratically with the whole input. |
+| PWA channels | Heads / head dimension 1/4, 2/8, 2/8, 4/16 by stage from the released reference model; later stages reuse the last. Allow internal QK/V projection expansion; do not widen the whole backbone just for PWA divisibility. Attention uses PyTorch SDPA with the same relative-position bias. |
+| Patch selection | Rebuild geometry and PWA for every candidate. Candidates reduce each axis of nnUNet's initial envelope by 0/1/2 stride-alignment units, recomputing alignment before subtracting. A crop is trainable when L fits the target at batch 2; if none is, the envelope takes nnUNet's next smaller step. `nnunet/cost_profile.py` measures B's batch-1 peak memory M1 and latency t1 on the target GPU; axis-permuted crops with equal volume, parameters and M1 count once. Among Pareto crops on (coverage, M1, t1) covering at least `coverage_fraction` (1.0) of the largest trainable crop, the least M1 wins. |
+| Batch | Largest power of two ≥2 whose S/B/L estimate fits the 24 GiB target and whose batch covers at most 5% of dataset voxels; shared by S/B/L. |
 
 The geometric foundation comes from the pinned
 [nnUNet default planner](https://github.com/MIC-DKFZ/nnUNet/blob/v2.6.2/nnunetv2/experiment_planning/experiment_planners/default_experiment_planner.py)
@@ -331,11 +348,10 @@ three repeated inventories per reference returned identical counts.
 The device target is **24 GiB by default**, independent of **batch-1 inference**.
 The tensor acceptance budget is target minus2GiB; this reserve was introduced
 after the observed L backward failure and the subsequent1.019GiB estimate error.
-Use the requested fixed training batch throughout candidate evaluation. The
-metadata CLI accepts `--training-batch-size` (default8). Reserved memory includes
+Candidate crops are judged at batch 2; the batch grows only after the crop is
+selected. Reserved memory includes
 allocator cache; external CUDA allocations and other processes are outside this
-proxy. Changing batch can change patch, stages and PWA geometry; it is not a
-universal inference-budget guarantee.
+proxy. The batch therefore never changes patch, stages or PWA geometry.
 
 For comparison, nnUNet ResEnc-L counts convolutional feature-map elements,
 `C_out * spatial_volume`, through the encoder and decoder. It compares this
@@ -349,11 +365,11 @@ model with reconstruction losses. See the
 
 | Setting | Shared rule |
 |---|---|
-| Optimizer | AdamW, LR 0.001, weight decay 0.01; no automatic batch-to-LR scaling |
-| Schedule | Cosine decay to 6e-6 over 1000 epochs |
+| Optimizer | AdamW, LR 0.001, weight decay 0.01; optional norm/bias/position-bias decay exclusions (off by default); no automatic batch-to-LR scaling |
+| Schedule | Warmup given in updates (default 0), then cosine decay to 6e-6 over 1000 epochs (250,000 updates) |
 | Sampling budget | 250 updates and 50 validation batches per epoch; 0.33 foreground oversampling |
 | Data pipeline | Official nnUNet augmentation, folds, region handling and sliding-window prediction |
-| Precision | CUDA FP16 autocast + inherited GradScaler; compact patch embedding executes in FP32 to avoid the observed bias-gradient overflow; unscale then clip gradient norm to 12. Gram construction and objective reductions use FP32. CPU training remains FP32. Full-patch real-data RTX3090 checks passed for the six BraTS/AutoPET tiers; long-run convergence is unverified. |
+| Precision | CUDA FP16 autocast + inherited GradScaler; compact patch embedding executes in FP32 to avoid the observed bias-gradient overflow; unscale then clip gradient norm to 12. Gram construction and objective reductions use FP32. CPU training remains FP32. GradScaler-skipped steps are logged per epoch. Full-patch real-data RTX3090 checks passed for the six BraTS/AutoPET tiers of the previous plans; long-run convergence is unverified. |
 | Segmentation | CE+Dice for class labels; BCE+Dice for regions; per-sample Dice for this fullres-only workflow |
 | Deep supervision | Native-resolution logits with nearest-neighbor target resizing; supervise decoded features, omit the undecoded bottleneck; normalize `2^-level` weights to sum to 1 so adding stages does not multiply the segmentation objective |
 | Reconstruction | Per-modality elementwise MSE, then average modality groups; coefficient 0.5 |
@@ -400,10 +416,22 @@ Labels and `regions_class_order` remain standard nnUNet metadata. Existing raw
 `splits_final.json` is preserved by the upstream planning workflow.
 
 ```bash
-# Both native examples use fixed batch8 and a24GiB training target.
+# Both native examples use a 24 GiB training target. Planning reads
+# veloxseg_profile.json, measured on the target CUDA GPU.
+nnUNetv2_extract_fingerprint -d 137
+python -m nnunetv2.experiment_planning.experiment_planners.veloxseg_planner candidates \
+  --dataset-name Dataset137_BraTS2021 \
+  --dataset-json "$nnUNet_raw/Dataset137_BraTS2021/dataset.json" \
+  --fingerprint "$nnUNet_preprocessed/Dataset137_BraTS2021/dataset_fingerprint.json" \
+  --gpu-memory-target-in-gb 24 \
+  --output "$nnUNet_preprocessed/Dataset137_BraTS2021/veloxseg_candidates.json"
+python nnunet/cost_profile.py \
+  --candidates "$nnUNet_preprocessed/Dataset137_BraTS2021/veloxseg_candidates.json" \
+  --output "$nnUNet_preprocessed/Dataset137_BraTS2021/veloxseg_profile.json"
 nnUNetv2_plan_and_preprocess -d 137 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
 nnUNetv2_train 137 3d_fullres_B 4 -tr nnVeloxSegTrainer -p nnVeloxSegPlans -num_gpus 1
 
+# 221: run the same fingerprint, candidates and profile steps first.
 nnUNetv2_plan_and_preprocess -d 221 -pl VeloxSegPlanner -c 3d_fullres_B -gpu_memory_target 24
 nnUNetv2_train 221 3d_fullres_B 4 -tr nnVeloxSegTrainer -p nnVeloxSegPlans -num_gpus 1
 ```
@@ -413,27 +441,41 @@ Add `--c` to the training command to resume. For prediction use
 `-p nnVeloxSegPlans`. S/B/L share one preprocessing data identifier, so preprocess only B once per
 dataset. Cache reuse requires matching preprocessing geometry, normalization,
 resampling, labels and sampling metadata; changing patch alone does not require
-resampling the data. The six-job launcher is documented in the [experiment guide](EXPERIMENTS.md#six-experiments).
+resampling the data. The multi-GPU launcher is documented in the [experiment guide](EXPERIMENTS.md#six-experiments).
 
-Exported fingerprints can use the same policy without raw images or a GPU:
+Exported fingerprints can use the same policy without raw images; only the
+profile step needs the target CUDA GPU:
 
 ```bash
-python -m nnunetv2.experiment_planning.experiment_planners.veloxseg_planner \
+python -m nnunetv2.experiment_planning.experiment_planners.veloxseg_planner candidates \
   --dataset-name Dataset137_BraTS2021 \
   --dataset-json nnunet/config/Dataset137_BraTS2021/dataset.json \
   --fingerprint nnunet/config/Dataset137_BraTS2021/dataset_fingerprint.json \
   --gpu-memory-target-in-gb 24 \
-  --training-batch-size 8 \
+  --output candidates.json
+python nnunet/cost_profile.py --candidates candidates.json --output profile.json
+python -m nnunetv2.experiment_planning.experiment_planners.veloxseg_planner plan \
+  --dataset-name Dataset137_BraTS2021 \
+  --dataset-json nnunet/config/Dataset137_BraTS2021/dataset.json \
+  --fingerprint nnunet/config/Dataset137_BraTS2021/dataset_fingerprint.json \
+  --gpu-memory-target-in-gb 24 \
+  --profile profile.json \
   --output nnunet/config/Dataset137_BraTS2021/nnVeloxSegPlans.json
 ```
 
-Use `--training-batch-size 4` with a separate output file for the comparison.
-Both CLI and native planning call the same `plan_family`; native planning uses
-batch8 by default. Existing checkpoints/plans keep their original configuration.
+Both CLI and native planning call the same `plan_family`. Without
+`veloxseg_profile.json`, native planning stops and prints these steps; a profile
+measured on a different architecture is rejected. Existing checkpoints/plans keep their original configuration.
 
 ## Generated examples and verification
 
+Bundled plans contain `3d_fullres_S/B/L` regenerated on RTX 3090 with the 24 GiB
+target: BraTS 160×192×160 / batch 8 (4 stages), AutoPET 256×320×256 / batch 2
+(5 stages), Hecktor 160×256×256 / batch 4 (5 stages). They have not been trained yet.
+
 ### Full-patch RTX3090 checks
+
+*Historical: previous fixed-batch planner.*
 
 All six corrected configurations passed real-data checks at their full planned
 patch and batch8, PyTorch2.6/cu124, native two-worker augmentation and default
@@ -487,7 +529,7 @@ Reserved peaks for BraTS S/B/L were11.971/13.857/15.461GiB; AutoPET S/B/L were
 so the whole-case inference checks also exercised it.
 These bounded checks do not establish1000-epoch convergence or long-run stability.
 
-Bundled plans now contain `3d_fullres_S/B/L` at the shared batch8 geometry.
+The previous bundled plans contained `3d_fullres_S/B/L` at the shared batch8 geometry.
 All six configuration names passed CPU 32³ synthetic native training, validation,
 checkpoint reload, resumed updates and sliding-window inference. These reduced
 CPU checks alone did not establish full-patch CUDA training fit; the real-data
@@ -534,6 +576,8 @@ check observed three skipped overflow-gradient steps followed by five finite
 updates at scale8192; nonfinite gradients were not applied to weights.
 
 ### AutoPET configuration behind the 23.047 GiB measurement
+
+*Historical: previous fixed-batch planner.*
 
 Patch224×320×320 at spacing3×2.03642×2.03642 mm covers approximately
 672×651.65×651.65 mm. It contains22,937,600 voxels, 25.93 times a96³ patch.
@@ -622,8 +666,8 @@ their parameters. Whole-case runtime additionally includes tile count, overlap,
 TTA, folds, resampling and export. A small tile can increase whole-case work.
 
 Training may use the target GPU's available capacity. The default is now 24 GiB,
-with no arbitrary75% discount. The planner now uses fixed batch8 (batch4
-comparison), not a training minimum followed by automatic batch expansion. Upstream ResEnc-L targets 24 GB and is the recommended preset in this
+with no arbitrary75% discount. The planner now requires L to train at batch 2, then
+expands the batch by powers of two within the target and the 5% dataset cap. Upstream ResEnc-L targets 24 GB and is the recommended preset in this
 version; the original planner uses 8, ResEnc-M targets roughly 9–11 GB actual
 VRAM, and XL targets 40. These are per-GPU targets, not pooled DDP memory.
 
@@ -643,7 +687,7 @@ current calibrated proxy and compact stem address these two separate issues.
 | Crop / normalization | Nonzero crop; CT foreground-statistic clipping at 0.5/99.5 percentiles and dataset-level standardization; other mapped channels commonly case-wise z-score; mask depends on crop ratio | Reused. Bundled PET is ZScore, CT is CTNormalization, MRI uses its planned nonzero mask. This is not a claim that PET z-score is universally optimal. |
 | Resampling | Image interpolation and label-aware interpolation differ; strong anisotropy can use separate coarse-axis resampling; predictions reverse resample/crop/transpose | Reused through upstream preprocessor/export. Preserve geometry metadata. |
 | Spatial topology | Pool axes according to relative spacing and remaining size; anisotropic kernels; minimum feature edge 4; patch padding follows resulting divisibility | Reuse axis geometry and combine the first two pooling transitions into a compact stem. A stride-1 network stem is not required by 3D fullres preprocessing. |
-| Capacity | ResEnc uses base 32, 3D cap 320, encoder block pattern 1/3/4/6… and decoder depth 1 | VeloxSeg uses its JLC/PWA template, base 16 and one block. These are model-specific priors requiring calibration, not inherited optimal settings. |
+| Capacity | ResEnc uses base 32, 3D cap 320, encoder block pattern 1/3/4/6… and decoder depth 1 | VeloxSeg uses its JLC/PWA template, base 16 (cap 128) and one block per stage (two for L). These are model-specific priors requiring calibration, not inherited optimal settings. |
 | Patch / batch | Prefer a large patch fitting at least 2 training samples, then allocate batch capacity; original 5% dataset cap is relaxed in ResEnc presets (code sets 1.0) | Search structure reused with measured VeloxSeg references, including modality branches, reconstruction and Gram objectives. Larger GPU targets remain extrapolations until measured. |
 | Context coverage | If fullres patch volume is below 25% of median resampled volume, search lowres spacing in 1.03 increments; discard lowres if volume reduction is below 2×; otherwise offer lowres and cascade | **Outside user-selected scope:** only fullres is required (2026-09-09). Keep fullres spacing; evaluate its context coverage without adding lowres/cascade. |
 | Configuration selection | 2D, 3D fullres and available lowres/cascade candidates; cross-validation predictions guide best configuration/ensembles | Only 3D fullres is in scope. Real-data fold/configuration validation remains open; no lowres/cascade implementation is planned for this work. |

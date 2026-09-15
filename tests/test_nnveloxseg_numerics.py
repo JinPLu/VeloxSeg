@@ -1,0 +1,172 @@
+import math
+import unittest
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from model.loss import VeloxSegLoss
+from nnunetv2.training.logging.nnunet_logger import MetaLogger
+from nnunetv2.training.nnUNetTrainer.nnVeloxSegTrainer import NUMERIC_GUARD, nnVeloxSegTrainer
+
+LIMIT = NUMERIC_GUARD['max_consecutive_skipped_steps']
+
+
+def gram(features):
+    flat = features.flatten(2)
+    return flat @ flat.transpose(1, 2) / (flat.shape[1] * flat.shape[2])
+
+
+class OutputContract(nn.Module):
+    """Smallest network with VeloxSeg's one-modality output layout: two
+    segmentation scales, reconstruction, decoder Gram and one teacher Gram."""
+
+    def __init__(self):
+        super().__init__()
+        self.segmentation = nn.Conv3d(1, 2, 3, padding=1)
+        self.reconstruction = nn.Conv3d(1, 1, 3, padding=1)
+        self.student = nn.Conv3d(1, 4, 1)
+        self.teacher = nn.Conv3d(1, 4, 1)
+
+    def forward(self, x):
+        segmentation = self.segmentation(x)
+        return [segmentation, F.avg_pool3d(segmentation, 2), self.reconstruction(x),
+                gram(self.student(x)), gram(self.teacher(x))]
+
+
+def cross_entropy(prediction, target):
+    return F.cross_entropy(prediction, target[:, 0].long())
+
+
+def make_trainer(grad_scaler=None):
+    """Trainer instance without nnU-Net's dataset setup; attributes mirror __init__/initialize."""
+    torch.manual_seed(0)
+    trainer = object.__new__(nnVeloxSegTrainer)
+    trainer.device = torch.device('cpu')
+    trainer.network = OutputContract()
+    trainer.loss = VeloxSegLoss(cross_entropy, [1])
+    trainer.optimizer = torch.optim.AdamW(trainer.network.parameters(), lr=1e-2)
+    trainer.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda epoch: 1.0)
+    trainer.grad_scaler = grad_scaler
+    trainer.logger = MetaLogger(None, False)
+    trainer.is_ddp = False
+    trainer.current_epoch = 0
+    trainer.consecutive_skipped_steps = 0
+    trainer.log_lines = []
+    trainer.print_to_log_file = lambda *args, **kwargs: trainer.log_lines.append(' '.join(map(str, args)))
+    trainer.on_train_epoch_start()
+    return trainer
+
+
+def batch(nan=False):
+    data = torch.randn(2, 1, 8, 8, 8, generator=torch.Generator().manual_seed(1))
+    if nan:
+        data[0, 0, 0, 0, 0] = math.nan
+    return {'data': data, 'target': (data > 0).float()}
+
+
+def snapshot(trainer):
+    return {name: tensor.clone() for name, tensor in trainer.network.state_dict().items()}
+
+
+def changed(before, trainer):
+    return [name for name, tensor in trainer.network.state_dict().items() if not torch.equal(before[name], tensor)]
+
+
+class StepGuardTests(unittest.TestCase):
+    def test_finite_step_updates_weights(self):
+        trainer = make_trainer()
+        before = snapshot(trainer)
+        output = trainer.train_step(batch())
+        record = trainer.step_records[-1]
+        self.assertTrue(math.isfinite(float(output['loss'])))
+        self.assertTrue(math.isfinite(record['grad_norm']))
+        self.assertAlmostEqual(record['loss'], record['segmentation'] + record['reconstruction'] + record['sdkt'],
+                               places=5)
+        self.assertEqual(sorted(changed(before, trainer)), sorted(before))
+        self.assertEqual(trainer.consecutive_skipped_steps, 0)
+
+    def test_nan_loss_is_skipped_before_backward_and_counted(self):
+        trainer = make_trainer()
+        outputs = [trainer.train_step(batch())]
+        before = snapshot(trainer)
+        outputs.append(trainer.train_step(batch(nan=True)))
+        self.assertTrue(math.isnan(float(outputs[-1]['loss'])))
+        self.assertTrue(all(parameter.grad is None for parameter in trainer.network.parameters()))
+        self.assertEqual(changed(before, trainer), [])
+        self.assertEqual({state['step'].item() for state in trainer.optimizer.state.values()}, {1})
+        self.assertEqual(trainer.consecutive_skipped_steps, 1)
+
+        outputs.append(trainer.train_step(batch()))
+        self.assertEqual(trainer.consecutive_skipped_steps, 0)
+        trainer.on_train_epoch_end(outputs)
+        log = '\n'.join(trainer.log_lines)
+        self.assertIn('Optimizer steps applied: 2, skipped: 1 (non-finite loss: 1, non-finite gradient norm: 0), '
+                      'consecutive skipped: 0', log)
+        self.assertIn('Pre-clip gradient norm: median', log)
+        self.assertRegex(log, r'Weighted loss terms, mean over finite steps: segmentation \S+ \(non-finite 1\), '
+                              r'reconstruction \S+ \(non-finite 1\), sdkt \S+ \(non-finite 1\)')
+
+    def test_inf_gradient_skips_update_without_grad_scaler(self):
+        trainer = make_trainer()
+        before = snapshot(trainer)
+        hook = trainer.network.reconstruction.weight.register_hook(lambda grad: torch.full_like(grad, math.inf))
+        output = trainer.train_step(batch())
+        self.assertTrue(math.isfinite(float(output['loss'])))
+        self.assertEqual(trainer.step_records[-1]['grad_norm'], math.inf)
+        self.assertEqual(changed(before, trainer), [])
+        self.assertEqual(trainer.optimizer.state, {})
+
+        hook.remove()
+        trainer.train_step(batch())
+        self.assertEqual(sorted(changed(before, trainer)), sorted(before))
+
+    def test_grad_scaler_backs_off_only_for_gradient_overflow(self):
+        scaler = torch.amp.GradScaler('cpu', init_scale=2.0 ** 16)
+        trainer = make_trainer(scaler)
+        before = snapshot(trainer)
+        trainer.train_step(batch(nan=True))
+        self.assertEqual(scaler.get_scale(), 2.0 ** 16)
+
+        hook = trainer.network.student.weight.register_hook(lambda grad: grad * math.inf)
+        trainer.train_step(batch())
+        self.assertFalse(math.isfinite(trainer.step_records[-1]['grad_norm']))
+        self.assertEqual(scaler.get_scale(), 2.0 ** 15)
+        self.assertEqual(changed(before, trainer), [])
+        self.assertEqual(trainer.consecutive_skipped_steps, 2)
+
+        hook.remove()
+        trainer.train_step(batch())
+        self.assertEqual(sorted(changed(before, trainer)), sorted(before))
+        self.assertEqual(trainer.consecutive_skipped_steps, 0)
+
+    def test_consecutive_skips_across_epochs_raise(self):
+        trainer = make_trainer()
+        outputs = [trainer.train_step(batch(nan=True)) for _ in range(LIMIT // 2)]
+        trainer.on_train_epoch_end(outputs)
+        trainer.current_epoch = 1
+        trainer.on_train_epoch_start()
+        for _ in range(LIMIT - LIMIT // 2):
+            trainer.train_step(batch(nan=True))
+        with self.assertRaisesRegex(RuntimeError, f'{LIMIT + 1} consecutive optimizer steps were skipped'):
+            trainer.train_step(batch(nan=True))
+        self.assertIn('Numerically broken training', trainer.log_lines[-1])
+
+
+class EpochStateTests(unittest.TestCase):
+    def test_nonfinite_weights_raise_at_epoch_end(self):
+        trainer = make_trainer()
+        outputs = [trainer.train_step(batch())]
+        with torch.no_grad():
+            trainer.network.teacher.bias[0] = math.inf
+        with self.assertRaisesRegex(RuntimeError, r"1 network tensors hold non-finite values .*teacher\.bias"):
+            trainer.on_train_epoch_end(outputs)
+
+    def test_finite_weights_pass_epoch_end(self):
+        trainer = make_trainer()
+        trainer.on_train_epoch_end([trainer.train_step(batch())])
+        self.assertIn('Optimizer steps applied: 1, skipped: 0', '\n'.join(trainer.log_lines))
+
+
+if __name__ == '__main__':
+    unittest.main()

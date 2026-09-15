@@ -24,6 +24,10 @@ class VeloxSegLoss(nn.Module):
         self.sdkt_weight = sdkt_weight
 
     def forward(self, output, target, reconstruction_target):
+        return sum(self.terms(output, target, reconstruction_target).values())
+
+    def terms(self, output, target, reconstruction_target):
+        """Weighted objective terms; their sum is the training loss."""
         layout = veloxseg_output_layout(len(output), len(self.modality_channels))
         start, end = layout['seg']
         weights = [2.0 ** -index for index in range(end - start)]
@@ -43,5 +47,6 @@ class VeloxSegLoss(nn.Module):
         student = output[layout['decoder_gram']].float()
         sdkt = sum((student - output[index].float()).square().sum(dim=(-2, -1)).mean()
                    for index in layout['teacher_grams'])
-        return (segmentation + self.reconstruction_weight * reconstruction
-                + self.sdkt_weight * sdkt)
+        return {'segmentation': segmentation,
+                'reconstruction': self.reconstruction_weight * reconstruction,
+                'sdkt': self.sdkt_weight * sdkt}

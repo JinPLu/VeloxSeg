@@ -5,13 +5,15 @@ from types import SimpleNamespace
 from torch import nn
 
 from model.VeloxSeg import VeloxSeg
-from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import architecture_for_patch
+from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import architecture_for_patch, training_policy
 from nnunetv2.training.nnUNetTrainer.nnVeloxSegTrainer import NORM_MODULES, nnVeloxSegTrainer
 
 INITIAL_LR = 1e-3
 MINIMUM_LR = 6e-6
-NUM_EPOCHS = 1000
-ITERATIONS = 250
+# The planned length at batch 8: 250 epochs of 250 updates.
+PLANNED = training_policy(8)
+NUM_EPOCHS = PLANNED['num_epochs']
+ITERATIONS = PLANNED['num_iterations_per_epoch']
 
 
 def small_veloxseg():
@@ -47,11 +49,12 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(lr_at(scheduler, optimizer, NUM_EPOCHS - 1), MINIMUM_LR)
 
     def test_warmup_updates_resolve_to_epochs(self):
-        stand_in, optimizer, scheduler = configure(nn.Linear(2, 2), warmup_updates=5000)
-        self.assertEqual(stand_in.warmup_epochs, 20)
-        self.assertAlmostEqual(lr_at(scheduler, optimizer, 0), INITIAL_LR / 20)
-        self.assertAlmostEqual(lr_at(scheduler, optimizer, 19), INITIAL_LR)
-        self.assertAlmostEqual(lr_at(scheduler, optimizer, 20), cosine(1 / (NUM_EPOCHS - 20)))
+        # 2% of the 62,500 planned updates.
+        stand_in, optimizer, scheduler = configure(nn.Linear(2, 2), warmup_updates=1250)
+        self.assertEqual(stand_in.warmup_epochs, 5)
+        self.assertAlmostEqual(lr_at(scheduler, optimizer, 0), INITIAL_LR / 5)
+        self.assertAlmostEqual(lr_at(scheduler, optimizer, 4), INITIAL_LR)
+        self.assertAlmostEqual(lr_at(scheduler, optimizer, 5), cosine(1 / (NUM_EPOCHS - 5)))
         self.assertAlmostEqual(lr_at(scheduler, optimizer, NUM_EPOCHS - 1), MINIMUM_LR)
 
     def test_partial_warmup_epoch_rounds_up(self):
@@ -60,7 +63,7 @@ class ScheduleTests(unittest.TestCase):
 
     def test_warmup_must_leave_decay_epochs(self):
         with self.assertRaisesRegex(ValueError, 'warmup_updates'):
-            configure(nn.Linear(2, 2), warmup_updates=NUM_EPOCHS * ITERATIONS)
+            configure(nn.Linear(2, 2), warmup_updates=PLANNED['total_updates'])
 
 
 class DecayGroupTests(unittest.TestCase):

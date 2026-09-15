@@ -248,6 +248,8 @@
       "batch_size": 2,
       "model_size": "S",
       "training": {
+        "total_samples": 500000,
+        "num_epochs": 1000,
         "total_updates": 250000,
         "num_iterations_per_epoch": 250,
         "warmup_updates": 0,
@@ -258,8 +260,7 @@
         "num_val_iterations_per_epoch": 50,
         "oversample_foreground_percent": 0.33,
         "batch_dice": false,
-        "seed": 12345,
-        "num_epochs": 1000
+        "seed": 12345
       },
       "resources": {
         "method": "Measured on the profiling GPU: L training peak reserved memory bounds the crop and batch; B batch-1 inference memory and latency select the crop",
@@ -929,6 +930,8 @@
       "batch_size": 2,
       "model_size": "B",
       "training": {
+        "total_samples": 500000,
+        "num_epochs": 1000,
         "total_updates": 250000,
         "num_iterations_per_epoch": 250,
         "warmup_updates": 0,
@@ -939,8 +942,7 @@
         "num_val_iterations_per_epoch": 50,
         "oversample_foreground_percent": 0.33,
         "batch_dice": false,
-        "seed": 12345,
-        "num_epochs": 1000
+        "seed": 12345
       },
       "resources": {
         "method": "Measured on the profiling GPU: L training peak reserved memory bounds the crop and batch; B batch-1 inference memory and latency select the crop",
@@ -1610,6 +1612,8 @@
       "batch_size": 2,
       "model_size": "L",
       "training": {
+        "total_samples": 500000,
+        "num_epochs": 1000,
         "total_updates": 250000,
         "num_iterations_per_epoch": 250,
         "warmup_updates": 0,
@@ -1620,8 +1624,7 @@
         "num_val_iterations_per_epoch": 50,
         "oversample_foreground_percent": 0.33,
         "batch_dice": false,
-        "seed": 12345,
-        "num_epochs": 1000
+        "seed": 12345
       },
       "resources": {
         "method": "Measured on the profiling GPU: L training peak reserved memory bounds the crop and batch; B batch-1 inference memory and latency select the crop",

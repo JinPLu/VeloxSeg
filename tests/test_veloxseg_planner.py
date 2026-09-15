@@ -17,7 +17,7 @@ from nnunetv2.experiment_planning.experiment_planners.veloxseg_planner import (
 )
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import (
     PATCH_POLICY, TRAINING_MEMORY_TARGET_GIB, MissingMeasurement, architecture_for_patch, measured_family,
-    patch_key, segmentation_loss, select_patch,
+    patch_key, segmentation_loss, select_patch, training_policy,
 )
 from nnunetv2.utilities.label_handling.label_handling import LabelManager
 
@@ -96,9 +96,7 @@ class MeasuredPlans(unittest.TestCase):
                     bundled = bundled_configuration(dataset, size)
                     self.assertEqual(configuration['patch_size'], bundled['patch_size'])
                     self.assertEqual(configuration['batch_size'], bundled['batch_size'])
-                    training = configuration['training']
-                    self.assertEqual(training['num_epochs'] * training['num_iterations_per_epoch'],
-                                     training['total_updates'])
+                    self.assertEqual(configuration['training'], bundled['training'])
                     resources = configuration['resources']
                     self.assertEqual(resources['patch_selection']['profile_gpu'], 'synthetic')
                     self.assertEqual([row['patch'] for row in resources['patch_selection']['candidates']
@@ -196,6 +194,18 @@ class MeasuredPlans(unittest.TestCase):
         plans = build_plans(planner, measured_profile(candidate_manifest(planner), voxel_memory(HECKTOR)))
         configuration = plans['configurations']['3d_fullres_B']
         self.assertEqual((configuration['patch_size'], configuration['batch_size']), ([160, 256, 256], 4))
+
+
+class TrainingLength(unittest.TestCase):
+    def test_sample_budget_sets_epochs_and_updates(self):
+        # batch: (num_epochs, total_updates); 500,000 / (32 * 250) = 62.5 rounds up.
+        expected = {2: (1000, 250000), 4: (500, 125000), 8: (250, 62500), 16: (125, 31250), 32: (63, 15750)}
+        for batch, (epochs, updates) in expected.items():
+            with self.subTest(batch=batch):
+                training = training_policy(batch)
+                self.assertEqual((training['total_samples'], training['num_epochs'], training['total_updates']),
+                                 (500000, epochs, updates))
+                self.assertEqual(training['num_iterations_per_epoch'], 250)
 
 
 class ProfileBatches(unittest.TestCase):

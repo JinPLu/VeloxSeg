@@ -8,7 +8,7 @@ measurements imply.
 """
 from fractions import Fraction
 from itertools import product
-from math import log2, prod
+from math import ceil, log2, prod
 
 import numpy as np
 
@@ -56,10 +56,11 @@ PWA_REFERENCE_TOKENS = (27, 216, 27)
 # mismatch compete on physical balance. A factor two made isotropic Hecktor
 # 40x64x64 take 5x2x2 (20x8x8 mm) over 5x4x4 (80 tokens, 20x16x16 mm).
 PWA_TOKEN_BAND = 4
-# The update budget is independent of the batch: 250,000 updates at nnUNet's
-# native 250 iterations per epoch. Plans derive num_epochs from these two.
+# Training length is a sample budget: nnUNet's default 1000 epochs of 250
+# iterations at batch 2 present 500,000 training samples. training_policy
+# derives the epochs of a batch from it at the native 250 iterations per epoch.
 TRAINING_POLICY = {
-    'total_updates': 250000,
+    'total_samples': 500000,
     'num_iterations_per_epoch': 250,
     'warmup_updates': 0,
     'initial_lr': 1e-3,
@@ -91,6 +92,19 @@ TRAINING_MEMORY_TARGET_GIB = 24
 # 23.34 GiB reserved. The reserve also covers a long run's allocations beyond
 # the few measured steps.
 TRAINING_RUNTIME_RESERVE_GIB = 2
+
+
+def training_policy(batch_size):
+    """The training block of a configuration at this batch.
+
+    num_epochs = ceil(total_samples / (batch_size * num_iterations_per_epoch))
+    and total_updates = num_epochs * num_iterations_per_epoch: batch 2 trains
+    1000 epochs (250,000 updates), batch 8 250 (62,500), batch 32 63 (15,750).
+    """
+    iterations = TRAINING_POLICY['num_iterations_per_epoch']
+    epochs = ceil(TRAINING_POLICY['total_samples'] / (batch_size * iterations))
+    return {'total_samples': TRAINING_POLICY['total_samples'], 'num_epochs': epochs,
+            'total_updates': epochs * iterations, **TRAINING_POLICY}
 
 
 def divisors(size):
@@ -430,15 +444,12 @@ def plan_family(spacing, median_shape, dataset_json, memory_gb, profile):
     chooses among them from the B batch-1 profile, and S/B/L share the chosen
     crop and its batch.
     """
-    if TRAINING_POLICY['total_updates'] % TRAINING_POLICY['num_iterations_per_epoch']:
-        raise ValueError('total_updates must be a whole number of epochs')
     family = candidate_family(spacing, median_shape, dataset_json, memory_gb)
     envelope, batches = measured_family(family, profile)
     key, table = select_patch(family, envelope, batches, profile)
     candidate, batch = family['candidates'][key], batches[key]
     measured = [measurement(family, profile, 'training', key, size)
                 for size in candidate['batch_sizes'] if size <= 2 * batch]
-    epochs = TRAINING_POLICY['total_updates'] // TRAINING_POLICY['num_iterations_per_epoch']
     # nnUNet forces foreground crops only into the last batch slots.
     forced = batch - round(batch * (1 - TRAINING_POLICY['oversample_foreground_percent']))
     return {
@@ -446,7 +457,7 @@ def plan_family(spacing, median_shape, dataset_json, memory_gb, profile):
             'architecture': architecture,
             'batch_size': batch,
             'model_size': size,
-            'training': {**TRAINING_POLICY, 'num_epochs': epochs},
+            'training': training_policy(batch),
             'resources': {
                 'method': 'Measured on the profiling GPU: L training peak reserved memory bounds the crop and '
                           'batch; B batch-1 inference memory and latency select the crop',

@@ -248,32 +248,399 @@
       "batch_size": 2,
       "model_size": "S",
       "training": {
-        "initial_lr": 0.00025,
-        "weight_decay": 0.01,
+        "total_updates": 250000,
+        "num_iterations_per_epoch": 250,
+        "warmup_updates": 0,
+        "initial_lr": 0.001,
         "minimum_lr": 6e-06,
-        "warmup_epochs": 10,
-        "num_epochs": 300,
+        "weight_decay": 0.01,
+        "decay_exclusions": false,
         "num_val_iterations_per_epoch": 50,
         "oversample_foreground_percent": 0.33,
         "batch_dice": false,
         "seed": 12345,
-        "num_iterations_per_epoch": 500
+        "num_epochs": 1000
       },
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
-        "training_memory_target_gib": 24,
+        "training_memory_target_gib": 24.0,
         "runtime_reserve_gib": 2,
         "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
-          0.9311187002204314,
-          3.6222506796570846
+          0.9311187002204312,
+          3.6222506796570855
         ],
         "batch_coverage_cap": 101,
         "forced_foreground_fraction": 0.5,
-        "estimated_training_reserved_gib": 11.817441441986512,
+        "estimated_training_reserved_gib": 11.817441441986508,
         "parameters": 3585427,
         "training_flops_per_batch": 716585205760,
-        "inference_flops_per_patch": 66899394560.0
+        "inference_flops_per_patch": 66899394560.0,
+        "patch_selection": {
+          "policy": {
+            "reduction_units": [
+              0,
+              1,
+              2
+            ],
+            "coverage_fraction": 1.0
+          },
+          "profile_gpu": "NVIDIA GeForce RTX 3090",
+          "profile_torch": "2.6.0+cu124",
+          "candidates": [
+            {
+              "patch": [
+                256,
+                320,
+                320
+              ],
+              "coverage_fraction": 1.25,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                320,
+                256
+              ],
+              "coverage_fraction": 1.0,
+              "m1_mib": 1338.40869140625,
+              "t1_ms": 61.95814514160156,
+              "trainable": true,
+              "pareto": true,
+              "selected": true
+            },
+            {
+              "patch": [
+                256,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 1398.10400390625,
+              "t1_ms": 44.18508720397949,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                320
+              ],
+              "coverage_fraction": 1.0,
+              "m1_mib": 1338.40869140625,
+              "t1_ms": 61.9422721862793,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.8,
+              "m1_mib": 583.048828125,
+              "t1_ms": 57.29792022705078,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 385.21435546875,
+              "t1_ms": 43.514320373535156,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 1398.10400390625,
+              "t1_ms": 44.29568099975586,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 385.21435546875,
+              "t1_ms": 43.89068794250488,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 262.4072265625,
+              "t1_ms": 38.56486511230469,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                320
+              ],
+              "coverage_fraction": 0.9375,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                256
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 822.4892578125,
+              "t1_ms": 44.58188819885254,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.5625,
+              "m1_mib": 841.59716796875,
+              "t1_ms": 36.369407653808594,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                320
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 822.4892578125,
+              "t1_ms": 44.21017646789551,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 570.447265625,
+              "t1_ms": 34.869760513305664,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 367.31201171875,
+              "t1_ms": 30.944255828857422,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.5625,
+              "m1_mib": 841.59716796875,
+              "t1_ms": 33.147905349731445,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 367.31201171875,
+              "t1_ms": 31.737855911254883,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.3375,
+              "m1_mib": 596.79052734375,
+              "t1_ms": 31.548416137695312,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                320
+              ],
+              "coverage_fraction": 0.78125,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                256
+              ],
+              "coverage_fraction": 0.625,
+              "m1_mib": 1815.37109375,
+              "t1_ms": 39.28783988952637,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.46875,
+              "m1_mib": 1066.33251953125,
+              "t1_ms": 36.057600021362305,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                320
+              ],
+              "coverage_fraction": 0.625,
+              "m1_mib": 1815.37109375,
+              "t1_ms": 39.24479866027832,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.5,
+              "m1_mib": 685.5234375,
+              "t1_ms": 34.95065689086914,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.375,
+              "m1_mib": 716.01513671875,
+              "t1_ms": 31.959552764892578,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.46875,
+              "m1_mib": 1066.33251953125,
+              "t1_ms": 33.57900810241699,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.375,
+              "m1_mib": 716.01513671875,
+              "t1_ms": 30.721023559570312,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.28125,
+              "m1_mib": 763.466796875,
+              "t1_ms": 29.906415939331055,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            }
+          ]
+        }
       },
       "patch_size": [
         256,
@@ -556,32 +923,399 @@
       "batch_size": 2,
       "model_size": "B",
       "training": {
-        "initial_lr": 0.00025,
-        "weight_decay": 0.01,
+        "total_updates": 250000,
+        "num_iterations_per_epoch": 250,
+        "warmup_updates": 0,
+        "initial_lr": 0.001,
         "minimum_lr": 6e-06,
-        "warmup_epochs": 10,
-        "num_epochs": 300,
+        "weight_decay": 0.01,
+        "decay_exclusions": false,
         "num_val_iterations_per_epoch": 50,
         "oversample_foreground_percent": 0.33,
         "batch_dice": false,
         "seed": 12345,
-        "num_iterations_per_epoch": 500
+        "num_epochs": 1000
       },
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
-        "training_memory_target_gib": 24,
+        "training_memory_target_gib": 24.0,
         "runtime_reserve_gib": 2,
         "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
-          0.9311187002204314,
-          3.6222506796570846
+          0.9311187002204312,
+          3.6222506796570855
         ],
         "batch_coverage_cap": 101,
         "forced_foreground_fraction": 0.5,
-        "estimated_training_reserved_gib": 12.42582510216836,
+        "estimated_training_reserved_gib": 12.425825102168357,
         "parameters": 5297171,
         "training_flops_per_batch": 1177190563840,
-        "inference_flops_per_patch": 84776960000.0
+        "inference_flops_per_patch": 84776960000.0,
+        "patch_selection": {
+          "policy": {
+            "reduction_units": [
+              0,
+              1,
+              2
+            ],
+            "coverage_fraction": 1.0
+          },
+          "profile_gpu": "NVIDIA GeForce RTX 3090",
+          "profile_torch": "2.6.0+cu124",
+          "candidates": [
+            {
+              "patch": [
+                256,
+                320,
+                320
+              ],
+              "coverage_fraction": 1.25,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                320,
+                256
+              ],
+              "coverage_fraction": 1.0,
+              "m1_mib": 1338.40869140625,
+              "t1_ms": 61.95814514160156,
+              "trainable": true,
+              "pareto": true,
+              "selected": true
+            },
+            {
+              "patch": [
+                256,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 1398.10400390625,
+              "t1_ms": 44.18508720397949,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                320
+              ],
+              "coverage_fraction": 1.0,
+              "m1_mib": 1338.40869140625,
+              "t1_ms": 61.9422721862793,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.8,
+              "m1_mib": 583.048828125,
+              "t1_ms": 57.29792022705078,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 385.21435546875,
+              "t1_ms": 43.514320373535156,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 1398.10400390625,
+              "t1_ms": 44.29568099975586,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 385.21435546875,
+              "t1_ms": 43.89068794250488,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 262.4072265625,
+              "t1_ms": 38.56486511230469,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                320
+              ],
+              "coverage_fraction": 0.9375,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                256
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 822.4892578125,
+              "t1_ms": 44.58188819885254,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.5625,
+              "m1_mib": 841.59716796875,
+              "t1_ms": 36.369407653808594,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                320
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 822.4892578125,
+              "t1_ms": 44.21017646789551,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 570.447265625,
+              "t1_ms": 34.869760513305664,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 367.31201171875,
+              "t1_ms": 30.944255828857422,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.5625,
+              "m1_mib": 841.59716796875,
+              "t1_ms": 33.147905349731445,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 367.31201171875,
+              "t1_ms": 31.737855911254883,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.3375,
+              "m1_mib": 596.79052734375,
+              "t1_ms": 31.548416137695312,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                320
+              ],
+              "coverage_fraction": 0.78125,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                256
+              ],
+              "coverage_fraction": 0.625,
+              "m1_mib": 1815.37109375,
+              "t1_ms": 39.28783988952637,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.46875,
+              "m1_mib": 1066.33251953125,
+              "t1_ms": 36.057600021362305,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                320
+              ],
+              "coverage_fraction": 0.625,
+              "m1_mib": 1815.37109375,
+              "t1_ms": 39.24479866027832,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.5,
+              "m1_mib": 685.5234375,
+              "t1_ms": 34.95065689086914,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.375,
+              "m1_mib": 716.01513671875,
+              "t1_ms": 31.959552764892578,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.46875,
+              "m1_mib": 1066.33251953125,
+              "t1_ms": 33.57900810241699,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.375,
+              "m1_mib": 716.01513671875,
+              "t1_ms": 30.721023559570312,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.28125,
+              "m1_mib": 763.466796875,
+              "t1_ms": 29.906415939331055,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            }
+          ]
+        }
       },
       "patch_size": [
         256,
@@ -864,32 +1598,399 @@
       "batch_size": 2,
       "model_size": "L",
       "training": {
-        "initial_lr": 0.00025,
-        "weight_decay": 0.01,
+        "total_updates": 250000,
+        "num_iterations_per_epoch": 250,
+        "warmup_updates": 0,
+        "initial_lr": 0.001,
         "minimum_lr": 6e-06,
-        "warmup_epochs": 10,
-        "num_epochs": 300,
+        "weight_decay": 0.01,
+        "decay_exclusions": false,
         "num_val_iterations_per_epoch": 50,
         "oversample_foreground_percent": 0.33,
         "batch_dice": false,
         "seed": 12345,
-        "num_iterations_per_epoch": 500
+        "num_epochs": 1000
       },
       "resources": {
         "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
-        "training_memory_target_gib": 24,
+        "training_memory_target_gib": 24.0,
         "runtime_reserve_gib": 2,
         "training_tensor_budget_gib": 22.0,
         "memory_proxy_coefficients": [
-          0.9311187002204314,
-          3.6222506796570846
+          0.9311187002204312,
+          3.6222506796570855
         ],
         "batch_coverage_cap": 101,
         "forced_foreground_fraction": 0.5,
-        "estimated_training_reserved_gib": 19.752557102548007,
+        "estimated_training_reserved_gib": 19.752557102548003,
         "parameters": 8413072,
         "training_flops_per_batch": 1840333127680,
-        "inference_flops_per_patch": 120268226560.0
+        "inference_flops_per_patch": 120268226560.0,
+        "patch_selection": {
+          "policy": {
+            "reduction_units": [
+              0,
+              1,
+              2
+            ],
+            "coverage_fraction": 1.0
+          },
+          "profile_gpu": "NVIDIA GeForce RTX 3090",
+          "profile_torch": "2.6.0+cu124",
+          "candidates": [
+            {
+              "patch": [
+                256,
+                320,
+                320
+              ],
+              "coverage_fraction": 1.25,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                320,
+                256
+              ],
+              "coverage_fraction": 1.0,
+              "m1_mib": 1338.40869140625,
+              "t1_ms": 61.95814514160156,
+              "trainable": true,
+              "pareto": true,
+              "selected": true
+            },
+            {
+              "patch": [
+                256,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 1398.10400390625,
+              "t1_ms": 44.18508720397949,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                320
+              ],
+              "coverage_fraction": 1.0,
+              "m1_mib": 1338.40869140625,
+              "t1_ms": 61.9422721862793,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.8,
+              "m1_mib": 583.048828125,
+              "t1_ms": 57.29792022705078,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 385.21435546875,
+              "t1_ms": 43.514320373535156,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 1398.10400390625,
+              "t1_ms": 44.29568099975586,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 385.21435546875,
+              "t1_ms": 43.89068794250488,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                256,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 262.4072265625,
+              "t1_ms": 38.56486511230469,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                320
+              ],
+              "coverage_fraction": 0.9375,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                256
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 822.4892578125,
+              "t1_ms": 44.58188819885254,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.5625,
+              "m1_mib": 841.59716796875,
+              "t1_ms": 36.369407653808594,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                320
+              ],
+              "coverage_fraction": 0.75,
+              "m1_mib": 822.4892578125,
+              "t1_ms": 44.21017646789551,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.6,
+              "m1_mib": 570.447265625,
+              "t1_ms": 34.869760513305664,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 367.31201171875,
+              "t1_ms": 30.944255828857422,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.5625,
+              "m1_mib": 841.59716796875,
+              "t1_ms": 33.147905349731445,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.45,
+              "m1_mib": 367.31201171875,
+              "t1_ms": 31.737855911254883,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                192,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.3375,
+              "m1_mib": 596.79052734375,
+              "t1_ms": 31.548416137695312,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                320
+              ],
+              "coverage_fraction": 0.78125,
+              "m1_mib": null,
+              "t1_ms": null,
+              "trainable": false,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                256
+              ],
+              "coverage_fraction": 0.625,
+              "m1_mib": 1815.37109375,
+              "t1_ms": 39.28783988952637,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                320,
+                192
+              ],
+              "coverage_fraction": 0.46875,
+              "m1_mib": 1066.33251953125,
+              "t1_ms": 36.057600021362305,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                320
+              ],
+              "coverage_fraction": 0.625,
+              "m1_mib": 1815.37109375,
+              "t1_ms": 39.24479866027832,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                256
+              ],
+              "coverage_fraction": 0.5,
+              "m1_mib": 685.5234375,
+              "t1_ms": 34.95065689086914,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                256,
+                192
+              ],
+              "coverage_fraction": 0.375,
+              "m1_mib": 716.01513671875,
+              "t1_ms": 31.959552764892578,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                320
+              ],
+              "coverage_fraction": 0.46875,
+              "m1_mib": 1066.33251953125,
+              "t1_ms": 33.57900810241699,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                256
+              ],
+              "coverage_fraction": 0.375,
+              "m1_mib": 716.01513671875,
+              "t1_ms": 30.721023559570312,
+              "trainable": true,
+              "pareto": false,
+              "selected": false
+            },
+            {
+              "patch": [
+                160,
+                192,
+                192
+              ],
+              "coverage_fraction": 0.28125,
+              "m1_mib": 763.466796875,
+              "t1_ms": 29.906415939331055,
+              "trainable": true,
+              "pareto": true,
+              "selected": false
+            }
+          ]
+        }
       },
       "patch_size": [
         256,

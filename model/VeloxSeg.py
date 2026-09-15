@@ -37,15 +37,20 @@ class VeloxSeg(nn.Module):
         self.apply(InitWeights_He(neg_slope=1e-2))
 
     def forward(self, x):
-        attention, encoded = self.encoder(x)
-        if not self.training:
-            return self.decoder(encoded)
-        predictions, student = self.decoder(encoded)
-        reconstructions, teachers = [], []
-        for modality, decoder in enumerate(self.rc_decoders):
-            features = [torch.cat((local, cooperative[modality]), dim=1)
-                        for local, cooperative in zip(encoded, attention)]
-            reconstruction, teacher = decoder(features)
-            reconstructions.append(reconstruction)
-            teachers.append(teacher)
-        return [*predictions, torch.cat(reconstructions, dim=1), student, *teachers]
+        # Under any caller's autocast (nnU-Net's predictor requests FP16) the
+        # network runs in BF16, so training, validation and inference share one
+        # numeric range; the FP32 islands inside stay FP32.
+        with torch.autocast(x.device.type, dtype=torch.bfloat16,
+                            enabled=torch.is_autocast_enabled(x.device.type)):
+            attention, encoded = self.encoder(x)
+            if not self.training:
+                return self.decoder(encoded)
+            predictions, student = self.decoder(encoded)
+            reconstructions, teachers = [], []
+            for modality, decoder in enumerate(self.rc_decoders):
+                features = [torch.cat((local, cooperative[modality]), dim=1)
+                            for local, cooperative in zip(encoded, attention)]
+                reconstruction, teacher = decoder(features)
+                reconstructions.append(reconstruction)
+                teachers.append(teacher)
+            return [*predictions, torch.cat(reconstructions, dim=1), student, *teachers]

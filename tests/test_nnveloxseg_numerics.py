@@ -38,7 +38,7 @@ def cross_entropy(prediction, target):
     return F.cross_entropy(prediction, target[:, 0].long())
 
 
-def make_trainer(grad_scaler=None):
+def make_trainer():
     """Trainer instance without nnU-Net's dataset setup; attributes mirror __init__/initialize."""
     torch.manual_seed(0)
     trainer = object.__new__(nnVeloxSegTrainer)
@@ -47,7 +47,7 @@ def make_trainer(grad_scaler=None):
     trainer.loss = VeloxSegLoss(cross_entropy, [1])
     trainer.optimizer = torch.optim.AdamW(trainer.network.parameters(), lr=1e-2)
     trainer.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda epoch: 1.0)
-    trainer.grad_scaler = grad_scaler
+    trainer.grad_scaler = None
     trainer.logger = MetaLogger(None, False)
     trainer.is_ddp = False
     trainer.current_epoch = 0
@@ -107,7 +107,7 @@ class StepGuardTests(unittest.TestCase):
         self.assertRegex(log, r'Weighted loss terms, mean over finite steps: segmentation \S+ \(non-finite 1\), '
                               r'reconstruction \S+ \(non-finite 1\), sdkt \S+ \(non-finite 1\)')
 
-    def test_inf_gradient_skips_update_without_grad_scaler(self):
+    def test_inf_gradient_skips_update(self):
         trainer = make_trainer()
         before = snapshot(trainer)
         hook = trainer.network.reconstruction.weight.register_hook(lambda grad: torch.full_like(grad, math.inf))
@@ -120,25 +120,6 @@ class StepGuardTests(unittest.TestCase):
         hook.remove()
         trainer.train_step(batch())
         self.assertEqual(sorted(changed(before, trainer)), sorted(before))
-
-    def test_grad_scaler_backs_off_only_for_gradient_overflow(self):
-        scaler = torch.amp.GradScaler('cpu', init_scale=2.0 ** 16)
-        trainer = make_trainer(scaler)
-        before = snapshot(trainer)
-        trainer.train_step(batch(nan=True))
-        self.assertEqual(scaler.get_scale(), 2.0 ** 16)
-
-        hook = trainer.network.student.weight.register_hook(lambda grad: grad * math.inf)
-        trainer.train_step(batch())
-        self.assertFalse(math.isfinite(trainer.step_records[-1]['grad_norm']))
-        self.assertEqual(scaler.get_scale(), 2.0 ** 15)
-        self.assertEqual(changed(before, trainer), [])
-        self.assertEqual(trainer.consecutive_skipped_steps, 2)
-
-        hook.remove()
-        trainer.train_step(batch())
-        self.assertEqual(sorted(changed(before, trainer)), sorted(before))
-        self.assertEqual(trainer.consecutive_skipped_steps, 0)
 
     def test_consecutive_skips_across_epochs_raise(self):
         trainer = make_trainer()

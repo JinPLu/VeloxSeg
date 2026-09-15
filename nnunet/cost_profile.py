@@ -10,15 +10,15 @@ batch-1 inference of final plans, which are read, never modified.
 Every measurement runs in a fresh process forked before CUDA is initialised, so
 allocator state, cuDNN benchmark caches and out-of-memory failures stay apart
 while the imports are shared. cudnn.benchmark is on, as in nnU-Net training.
-Inference: FP32 weights and input, FP16 autocast, eval + inference_mode
-segmentation forward with the whole model resident (reconstruction decoder
-weights included), warmup forwards, CUDA-event median/p90 latency over the
-timed forwards, and peak allocated and reserved memory after a reset.
-Training: a random batch with nnU-Net's loader dtypes. Each step repeats the
-memory path of nnVeloxSegTrainer.train_step without its step bookkeeping: FP16
-autocast forward and VeloxSegLoss with the dataset's segmentation loss,
-GradScaler backward, gradient clipping and AdamW. nnVeloxSegTrainer's own
-validation_step then runs once under eval and no_grad, as in online
+Inference: FP32 weights and input, autocast as in nnU-Net's predictor (VeloxSeg
+runs it in BF16), eval + inference_mode segmentation forward with the whole
+model resident (reconstruction decoder weights included), warmup forwards,
+CUDA-event median/p90 latency over the timed forwards, and peak allocated and
+reserved memory after a reset.
+Training: a random batch with nnU-Net's loader dtypes, nnVeloxSegTrainer's own
+train_step (BF16 autocast forward, VeloxSegLoss with the dataset's segmentation
+loss, backward, gradient clipping and AdamW), then its validation_step once
+under eval and no_grad, as in online
 validation; its FP32 loss, predictions and Dice counts can set the peak (BraTS
 L 160x192x160 batch 8: 16.04 GiB with them, 14.30 GiB with the forward and loss
 alone). The row records the process's peak reserved memory; CUDA out of
@@ -63,7 +63,7 @@ def inference(network, kwargs):
     network.eval()
     x = torch.randn(1, sum(kwargs['in_ch']), *kwargs['input_size'], device='cuda')
     times = []
-    with torch.inference_mode(), torch.autocast('cuda', dtype=torch.float16):
+    with torch.inference_mode(), torch.autocast('cuda'):
         for _ in range(MEASUREMENT['warmup']):
             network(x)
         torch.cuda.synchronize()
@@ -84,13 +84,10 @@ def training(network, kwargs, labels, batch):
     objective = VeloxSegLoss(segmentation_loss(labels, TRAINING_POLICY['batch_dice']), kwargs['in_ch'])
     optimizer = torch.optim.AdamW(network.parameters(), lr=TRAINING_POLICY['initial_lr'],
                                   weight_decay=TRAINING_POLICY['weight_decay'])
-    # nnU-Net's GradScaler starts at 2**16 and skips its first updates while the
-    # scale settles. Scale 1 applies them, so AdamW state is resident as in
-    # steady training; the scale value itself allocates nothing.
     sample = loader_batch(kwargs, labels, batch)
     # The attributes nnVeloxSegTrainer.train_step and validation_step read.
     trainer = SimpleNamespace(device=torch.device('cuda'), network=network, loss=objective, label_manager=labels,
-                              optimizer=optimizer, grad_scaler=torch.GradScaler('cuda', init_scale=1.0),
+                              optimizer=optimizer, grad_scaler=None,
                               step_records=[], consecutive_skipped_steps=0, current_epoch=0)
     try:
         network.train()
@@ -104,9 +101,10 @@ def training(network, kwargs, labels, batch):
         oom = True
     except RuntimeError as error:
         # Memory exhausted outside the caching allocator surfaces as a library
-        # allocation failure: Hecktor L 128x160x224 batch 8 raised
-        # CUBLAS_STATUS_ALLOC_FAILED from cublasCreate in backward on an RTX 3090.
-        if 'ALLOC_FAILED' not in str(error):
+        # failure in backward on an RTX 3090: Hecktor L 128x160x224 batch 8 raised
+        # CUBLAS_STATUS_ALLOC_FAILED from cublasCreate, and BraTS L 160x192x96
+        # batch 32 (batch 16: 16.5 GiB reserved) CUDNN_STATUS_INTERNAL_ERROR.
+        if not any(status in str(error) for status in ('ALLOC_FAILED', 'CUDNN_STATUS_INTERNAL_ERROR')):
             raise
         oom = True
     return {'oom': oom, 'peak_allocated_mib': torch.cuda.max_memory_allocated() / 2 ** 20,

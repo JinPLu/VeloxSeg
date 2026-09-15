@@ -22,12 +22,9 @@ NORM_MODULES = (LayerNorm, nn.LayerNorm, nn.GroupNorm, nn.modules.batchnorm._Nor
 NUMERIC_GUARD = {
     # Total gradient norm clip of upstream nnU-Net's train_step.
     'max_grad_norm': 12,
-    # GradScaler starts at 2**16 and halves once per skipped step, so FP16
-    # start-up calibration reaches scale 1 after at most 16 consecutive skips
-    # (AutoPET L measured 11: 32768 -> 32). After 32 halvings a further overflow
-    # needs activation gradients above 65504 * 2**16 ~ 4e9. Skipped steps leave
-    # the weights unchanged, so without a scaler 32 consecutive random batches
-    # failing is a broken model, not one bad case.
+    # BF16 has FP32's exponent range and no loss-scale calibration skips.
+    # Skipped steps leave the weights unchanged, so 32 consecutive random
+    # batches failing is a broken model, not one bad case.
     'max_consecutive_skipped_steps': 32,
 }
 
@@ -44,6 +41,9 @@ class nnVeloxSegTrainer(nnUNetTrainer):
                     'oversample_foreground_percent'):
             setattr(self, key, settings[key])
         self.consecutive_skipped_steps = 0
+        # VeloxSeg runs autocast in BF16 (model/VeloxSeg.py), which needs no
+        # loss scaling; upstream creates a CUDA GradScaler for FP16.
+        self.grad_scaler = None
 
     @staticmethod
     def build_network_architecture(plans_manager, configuration_manager,
@@ -130,29 +130,22 @@ class nnVeloxSegTrainer(nnUNetTrainer):
         data = batch['data'].to(self.device, non_blocking=True)
         target = batch['target'].to(self.device, non_blocking=True)
         self.optimizer.zero_grad(set_to_none=True)
-        with torch.autocast(self.device.type, dtype=torch.float16, enabled=self.device.type == 'cuda'):
+        with torch.autocast(self.device.type, enabled=self.device.type == 'cuda'):
             output = self.network(data)
             terms = self.loss.terms(output, target, data)
         loss = sum(terms.values())
         # Host sync 1 (replaces the former end-of-step loss.cpu()): the loss is
-        # checked before backward, so a forward overflow never reaches GradScaler.
+        # checked before backward.
         values = torch.stack([loss.detach(), *(term.detach() for term in terms.values())]).cpu()
         record = dict(zip(('loss', *terms), values.tolist()), grad_norm=math.nan)
         if math.isfinite(record['loss']):
-            if self.grad_scaler is None:
-                loss.backward()
-            else:
-                self.grad_scaler.scale(loss).backward()
-                self.grad_scaler.unscale_(self.optimizer)
-            # Host sync 2: the unscaled total norm is non-finite iff some gradient is inf/NaN
-            # (or its square sum overflows). The update is refused here for every precision;
-            # GradScaler only calibrates its scale from the inf checks unscale_ recorded.
+            loss.backward()
+            # Host sync 2: the total norm is non-finite iff some gradient is inf/NaN
+            # (or its square sum overflows); such an update is refused.
             record['grad_norm'] = nn.utils.clip_grad_norm_(
                 self.network.parameters(), NUMERIC_GUARD['max_grad_norm']).item()
             if math.isfinite(record['grad_norm']):
                 self.optimizer.step()
-            if self.grad_scaler is not None:
-                self.grad_scaler.update()
         self.step_records.append(record)
         applied = math.isfinite(record['grad_norm'])
         self.consecutive_skipped_steps = 0 if applied else self.consecutive_skipped_steps + 1
@@ -203,14 +196,14 @@ class nnVeloxSegTrainer(nnUNetTrainer):
     def validation_step(self, batch):
         data = batch['data'].to(self.device, non_blocking=True)
         target = batch['target'].to(self.device, non_blocking=True)
-        with torch.autocast(self.device.type, dtype=torch.float16, enabled=self.device.type == 'cuda'):
+        with torch.autocast(self.device.type, enabled=self.device.type == 'cuda'):
             output = self.network(data)
         loss = self.loss.segmentation_loss(output.float(), target)
         axes = [0, *range(2, output.ndim)]
         if self.label_manager.has_regions:
             predicted = (torch.sigmoid(output) > .5).long()
         else:
-            # Full-patch voxel counts exceed FP16's finite range. Match the
+            # Full-patch voxel counts are inexact in half precision. Match the
             # upstream trainer's FP32 one-hot tensor for online Dice reduction.
             predicted = torch.zeros_like(output, dtype=torch.float32)
             predicted.scatter_(1, output.argmax(1, keepdim=True), 1)

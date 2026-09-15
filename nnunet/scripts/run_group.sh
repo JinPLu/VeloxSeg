@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run a list of nnVeloxSeg experiments on the GPUs visible to one cluster job.
 # Task file: one "dataset_id configuration fold plans_identifier [nnUNetv2_train options]"
-# per line, e.g. append --c to resume; blank lines and lines starting with # are ignored. Each task gets one GPU;
-# tasks beyond the GPU count start as soon as an earlier task frees its GPU.
+# per line, e.g. append --c to resume; blank lines and lines starting with # are ignored.
+# Each task gets one GPU; tasks beyond the GPU count start as soon as an earlier
+# task frees its GPU.
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 tasks_file=$1
@@ -24,29 +25,46 @@ if (( ${#gpus[@]} == 0 )); then
     exit 2
 fi
 mapfile -t tasks < <(grep -vE '^[[:space:]]*(#|$)' "$tasks_file")
+# Reject malformed lines before any GPU work starts.
+for line in "${tasks[@]}"; do
+    read -ra fields <<< "$line"
+    plans_file=$(compgen -G "$nnUNet_preprocessed/Dataset$(printf '%03d' "${fields[0]}")_*/${fields[3]:-}.json" || true)
+    if (( ${#fields[@]} < 4 )) || [[ -z "$plans_file" ]]; then
+        echo "Invalid task or missing plans: $line" >&2
+        exit 2
+    fi
+done
 # Share the job's CPUs between concurrent augmentation pools.
-export nnUNet_n_proc_DA="${nnUNet_n_proc_DA:-$(( $(nproc) / ${#gpus[@]} - 1 ))}"
+workers=$(( $(nproc) / ${#gpus[@]} - 1 ))
+export nnUNet_n_proc_DA="${nnUNet_n_proc_DA:-$(( workers > 1 ? workers : 1 ))}"
 log_dir="$nnUNet_results/group_logs"
 mkdir -p "$log_dir"
 echo "GPUs=${#gpus[@]} tasks=${#tasks[@]} nnUNet_n_proc_DA=$nnUNet_n_proc_DA"
 
+# Every task runs in its own session so an interrupt reaches nnUNetv2_train and
+# its augmentation workers, not only the wrapper shell.
 declare -A running=()
-trap 'for pid in "${running[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done' INT TERM
+stop() {
+    for pid in "${running[@]}"; do kill -TERM -- "-$pid" 2>/dev/null || true; done
+    wait "${running[@]}" 2>/dev/null || true
+    exit 130
+}
+trap stop INT TERM
 next=0
 status=0
 while (( next < ${#tasks[@]} || ${#running[@]} > 0 )); do
     for slot in "${!gpus[@]}"; do
         if [[ -z "${running[$slot]:-}" ]] && (( next < ${#tasks[@]} )); then
-            read -r dataset configuration fold plans options <<< "${tasks[$next]}"
-            name="${dataset}_${plans}_${configuration}_fold${fold}"
-            CUDA_VISIBLE_DEVICES="${gpus[$slot]}" bash "$script_dir/run_experiment.sh" \
-                "$dataset" "$configuration" "$fold" "$plans" ${options:-} >> "$log_dir/$name.log" 2>&1 &
+            read -ra fields <<< "${tasks[$next]}"
+            name="${fields[0]}_${fields[3]}_${fields[1]}_fold${fields[2]}"
+            CUDA_VISIBLE_DEVICES="${gpus[$slot]}" setsid bash "$script_dir/run_experiment.sh" \
+                "${fields[@]}" >> "$log_dir/$name.log" 2>&1 &
             running[$slot]=$!
             echo "$(date '+%F %T') start $name on ${gpus[$slot]} pid=${running[$slot]}"
             next=$((next + 1))
         fi
     done
-    sleep 30
+    sleep 30 & wait $!
     for slot in "${!running[@]}"; do
         pid=${running[$slot]}
         kill -0 "$pid" 2>/dev/null && continue

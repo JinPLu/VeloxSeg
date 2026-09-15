@@ -348,7 +348,8 @@ def reduce_axis(patch, spacing, axis):
 
 
 def smaller_patch(patch, spacing, median_shape):
-    # Upstream relative-coverage axis order.
+    # Upstream relative-coverage axis order; unlike upstream, an axis that cannot
+    # shrink legally passes the step to the next axis.
     for axis in np.argsort(np.asarray(patch) / np.asarray(median_shape))[::-1]:
         reduced = reduce_axis(patch, spacing, axis)
         if reduced is not None:

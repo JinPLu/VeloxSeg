@@ -31,8 +31,8 @@ class PlannerWindowTests(unittest.TestCase):
         self.assertEqual(attention_window([3, 32, 32], [4.0, 4.0, 4.0], 0, False), [3, 4, 4])
 
     def test_empty_reference_band_still_prefers_balanced_window(self):
-        # No legal window of 40x48x40 is within a factor two of 27 tokens; the
-        # nearest (5x3x5) loses to the balanced 5x6x5.
+        # No legal window of 40x48x40 is near 27 tokens; the band around the best
+        # achievable count keeps the balanced 5x6x5 against the nearer 5x3x5.
         self.assertEqual(attention_window([40, 48, 40], [4.0, 4.0, 4.0], 0, False), [5, 6, 5])
 
     def test_physical_balance_uses_feature_spacing(self):

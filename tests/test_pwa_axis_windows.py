@@ -5,7 +5,7 @@ from unittest import mock
 import torch
 
 from model.VeloxSeg import VeloxSeg
-from model.components.PWA import Paired_Windows_Attention
+from model.components.PWA import Paired_Windows_Attention, Paired_Windows_TransformerBlock
 from nnunetv2.experiment_planning.experiment_planners import veloxseg_rules
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import (
     architecture_for_patch,
@@ -133,6 +133,18 @@ class AnisotropicModelTests(unittest.TestCase):
         for name, parameter in pwa_parameters:
             self.assertIsNotNone(parameter.grad, name)
             self.assertTrue(torch.isfinite(parameter.grad).all(), name)
+
+    def test_block_adds_each_residual_once(self):
+        # Pre-norm residual block (Swin): with both branch outputs zeroed the block is the identity.
+        torch.manual_seed(0)
+        block = Paired_Windows_TransformerBlock([3, 8, 8], [16, 16], [3, 2, 2], [1, 1, 1], num_heads=1,
+                                                min_dim_head=4, attn_drop=0.0, proj_drop=0.0)
+        for layer in (*block.attn.mix_channels, *(ffn.linear2 for ffn in block.ffns)):
+            torch.nn.init.zeros_(layer.weight)
+            torch.nn.init.zeros_(layer.bias)
+        inputs = [torch.randn(2, 16, 3, 8, 8) for _ in range(2)]
+        for output, x in zip(block(inputs), inputs):
+            torch.testing.assert_close(output, x)
 
 
 if __name__ == '__main__':

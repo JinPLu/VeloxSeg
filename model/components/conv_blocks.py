@@ -48,19 +48,15 @@ class JLC(nn.Module):
         conv = get_conv(spatial_dim)
         norm = get_norm(norm_type, spatial_dim)
         
-        if len(kernel_sizes) > 1:
-            self.spatial_convs = nn.ModuleList([
-                nn.Sequential(
-                    conv(in_channels, in_channels, kernel_size, padding=tuple(size // 2 for size in kernel_size) if isinstance(kernel_size, (tuple, list)) else kernel_size // 2, groups=groups),
-                    norm(in_channels),
-                    get_act(activation, inplace=True),
-                )
-                for kernel_size in kernel_sizes
-            ])
-        else:
-            self.spatial_convs = nn.ModuleList([
-                conv(in_channels, in_channels, kernel_sizes[0], padding=tuple(size // 2 for size in kernel_sizes[0]) if isinstance(kernel_sizes[0], (tuple, list)) else kernel_sizes[0] // 2, groups=groups)
-            ])
+        # Every spatial branch is conv-norm-act, whatever the number of kernels.
+        self.spatial_convs = nn.ModuleList([
+            nn.Sequential(
+                conv(in_channels, in_channels, kernel_size, padding=tuple(size // 2 for size in kernel_size) if isinstance(kernel_size, (tuple, list)) else kernel_size // 2, groups=groups),
+                norm(in_channels),
+                get_act(activation, inplace=True),
+            )
+            for kernel_size in kernel_sizes
+        ])
 
         self.channel_conv = nn.Sequential(
             norm(in_channels),

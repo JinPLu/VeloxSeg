@@ -227,8 +227,9 @@ class MultiModal_Paired_Windows_Attention(Paired_Windows_Attention):
 
     def forward(self, inputs):
         
+        # Residual branch only: Paired_Windows_TransformerBlock adds the skip once.
         if self.num_heads == 0:
-            return inputs
+            return [torch.zeros_like(x) for x in inputs]
 
         # inputs: List[Tensor], (b, c, *spatial)
         assert len(inputs) == self.num_modalities, f"The number of modalities should be {self.num_modalities}, but got {len(inputs)}"
@@ -239,8 +240,7 @@ class MultiModal_Paired_Windows_Attention(Paired_Windows_Attention):
         attn = self.attention_operation(q, k, v)
         # attn: (b, m, bswin*head*c, *spatial)
         attn = self.window_scattering(attn, inputs[0].shape[0], self.num_modalities, inputs[0].shape[2:])
-        return [x + drop(mix(attn[:, m]))
-                for m, (x, mix, drop) in enumerate(zip(inputs, self.mix_channels, self.dropout_attns))]
+        return [drop(mix(attn[:, m])) for m, (mix, drop) in enumerate(zip(self.mix_channels, self.dropout_attns))]
     
 
 class Paired_Windows_TransformerBlock(nn.Module):

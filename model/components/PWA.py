@@ -1,11 +1,14 @@
 import torch
 from torch import nn
-from einops import rearrange
 from torch.nn import functional as F
 from monai.networks.layers import DropPath
 from typing import Sequence
 from .attention_utils import FFN, LayerNorm, PositionalEmbedding
-from math import ceil
+from math import ceil, prod
+
+# Memory-efficient SDPA raises "CUDA error: invalid configuration argument" above
+# 65535 batch entries (RTX 3090, PyTorch 2.6: 65535 passes, 65536 fails for 1/2/4 heads).
+SDPA_MAX_BATCH = 65535
 
 class Paired_Windows_Attention(nn.Module):
 
@@ -47,8 +50,6 @@ class Paired_Windows_Attention(nn.Module):
             
             if self.use_pos_embed:
                 self.position_embedding = PositionalEmbedding(dim=self.dim, num_heads=self.num_heads, window_size=self.n_hwd)
-            self.window_gathering = self.window_gathering_3d if self.dim == 3 else self.window_gathering_2d
-            self.window_scattering = self.window_scattering_3d if self.dim == 3 else self.window_scattering_2d
 
             self.dropout_weight = nn.Dropout(dropout)
     
@@ -81,172 +82,88 @@ class Paired_Windows_Attention(nn.Module):
         channels_qk = channels_need
         channels_v = ceil(self.channels_v / channels_need) * channels_need
         
-        # print(f"in_channels: {self.channels_qk}, channels_qk: {channels_qk}, channels_v: {channels_v}")
-        # print(f"big_window_sizes: {bw_sizes}")
-        # print(f"small_window_sizes: {sw_sizes}")
-        
         self.channels_qk = channels_qk
         self.channels_v = channels_v
         
         return bw_sizes, sw_sizes
 
     def attention_operation(self, query, key, value):
-        # Windows are independent attention batches. SDPA retains the PWA
-        # equation while allowing PyTorch to choose its efficient kernel.
-        batch, heads, windows, tokens, _ = query.shape
+        # query/key/value: (windows, head, tokens, c). Windows of every scale are
+        # independent SDPA batch entries.
         bias = None
         if self.use_pos_embed:
             spatial_tokens = self.position_embedding.relative_position_index.shape[0]
-            modalities = tokens // spatial_tokens
+            modalities = query.shape[-2] // spatial_tokens
             bias = self.position_embedding.get_relative_position_bias(l=spatial_tokens)
             bias = bias.repeat(1, modalities, modalities).to(query.dtype)
-        def pack(tensor):
-            return tensor.permute(0, 2, 1, 3, 4).reshape(batch * windows, heads, tokens, -1)
-        attention = F.scaled_dot_product_attention(
-            pack(query), pack(key), pack(value), attn_mask=bias,
-            dropout_p=self.dropout_weight.p if self.training else 0.0)
-        return attention.reshape(batch, windows, heads, tokens, -1).permute(0, 2, 1, 3, 4)
+        # PyTorch's memory-efficient kernel needs head dims divisible by 8. Zero
+        # channels add nothing to q.k and are sliced off v; scale keeps 1/sqrt(c).
+        channels, scale = value.shape[-1], query.shape[-1] ** -0.5
+        query, key, value = (F.pad(t, (0, -t.shape[-1] % 8)) if t.shape[-1] % 8 else t
+                             for t in (query, key, value))
+        # The kernel's CUDA launch fails beyond SDPA_MAX_BATCH batch entries
+        # (windows x samples), whatever the head count, so large batches attend
+        # in chunks.
+        attention = [F.scaled_dot_product_attention(
+            q, k, v, attn_mask=bias, dropout_p=self.dropout_weight.p if self.training else 0.0, scale=scale)
+            for q, k, v in zip(*(t.split(SDPA_MAX_BATCH) for t in (query, key, value)))]
+        attention = attention[0] if len(attention) == 1 else torch.cat(attention)
+        return attention[..., :channels]
 
+    def window_gathering(self, x):
+        """Pool every scale on the full grid, then partition it into windows.
 
-    def window_gathering_3d(self, x):
-        # x: (b, c, h, w, d)
-        b, _, h, w, d = x.size()
-        # x: (b, bswin, head, c, h, w, d)
+        x: (b, m, bswin*head*c, *spatial) -> (sum_i b*N_i, head, m*l, c), scale-major.
+        Pooling before partitioning equals pooling inside each big window because
+        every big window is a multiple of its pooling window and windows tile x.
+        """
+        b, m, _, *spatial = x.shape
+        pool = F.max_pool3d if self.dim == 3 else F.max_pool2d
+        axes = range(self.dim)
+        windows = []
+        for xi, big, small in zip(x.chunk(self.num_bswin, dim=2), self.big_window_size, self.small_window_size):
+            if prod(small) > 1:
+                xi = pool(xi.flatten(0, 1), kernel_size=small, stride=small).unflatten(0, (b, m))
+            counts = [n // w for n, w in zip(spatial, big)]
+            xi = xi.reshape(b, m, self.num_heads, -1, *[v for pair in zip(counts, self.n_hwd) for v in pair])
+            # (b, m, head, c, N_1, n_1, ...) -> (b, N_1.., head, m, n_1.., c)
+            xi = xi.permute(0, *[4 + 2 * a for a in axes], 2, 1, *[5 + 2 * a for a in axes], 3)
+            # A single-window scale reshapes to a view with channels ahead of tokens in
+            # memory; compiled cat kept that layout and memory-efficient SDPA rejected a
+            # last dimension that is not contiguous.
+            windows.append(xi.reshape(b * prod(counts), self.num_heads, m * prod(self.n_hwd), -1).contiguous())
+        return torch.cat(windows)
         
-        x = rearrange(x, 'b (bswin head c) h w d -> b bswin head c h w d', bswin=self.num_bswin, head=self.num_heads)
-        n = 0
-        Ns = []
-        xs = []
-        for i in range(self.num_bswin):
-            # x: (b, head, c, h, w, d)
-            b_win_h, b_win_w, b_win_d = self.big_window_size[i]
-            s_win_h, s_win_w, s_win_d = self.small_window_size[i]
+    def window_scattering(self, out, b, m, spatial):
+        """Inverse of window_gathering; every window is upsampled on its own.
 
-            Nh, Nw, Nd = h // b_win_h, w // b_win_w, d // b_win_d
-            nh, nw, nd = b_win_h // s_win_h, b_win_w // s_win_w, b_win_d // s_win_d
-            
-            # xi: (bhN, c, nh, nw, nd) 
-            xi = rearrange(x[:, i], 'b head c (Nh winh) (Nw winw) (Nd wind) -> b (head Nh Nw Nd c) winh winw wind', 
-                                                                    winh=b_win_h, winw=b_win_w, wind=b_win_d)
-
-            xi = F.max_pool3d(xi, kernel_size=self.small_window_size[i], stride=self.small_window_size[i])
-            
-            xi = rearrange(xi, 'b (head Nh Nw Nd c) nh nw nd -> b head (Nh Nw Nd) (nh nw nd) c', 
-                                                        head=self.num_heads, Nh=Nh, Nw=Nw, Nd=Nd)
-
-            xs.append(xi)
-            Ns.append([Nh, Nw, Nd])
-
-            assert n == 0 or (n[0] == nh and n[1] == nw and n[2] == nd), "Please check that the number of small windows in all big windows is equal to ensure parallel calculation of attention."
-            n = [nh, nw, nd]
-        
-        # x: (b, head, Ns, l, c)
-        x = torch.cat(xs, dim=2)
-        return x, Ns, n
-    
-    def window_gathering_2d(self, x):
-        # x: (b, c, h, w)
-        b, _, h, w = x.size()
-        # x: (b, bswin, head, c, h, w)
-        x = rearrange(x, 'b (bswin head c) h w -> b bswin head c h w', bswin=self.num_bswin, head=self.num_heads)
-        
-        n = 0
-        Ns = []
-        xs = []
-        for i in range(self.num_bswin):
-            # x: (b, head, c, h, w)
-            b_win_h, b_win_w = self.big_window_size[i]
-            s_win_h, s_win_w = self.small_window_size[i]
-
-            Nh, Nw = h // b_win_h, w // b_win_w
-            nh, nw = b_win_h // s_win_h, b_win_w // s_win_w
-            
-            # xi: (bhN, c, nh, nw)
-            xi = rearrange(x[:, i], 'b head c (Nh winh) (Nw winw) -> b (head Nh Nw c) winh winw', 
-                                                                    winh=b_win_h, winw=b_win_w)
-            xi = F.max_pool2d(xi, kernel_size=self.small_window_size[i], stride=self.small_window_size[i])
-            
-            xi = rearrange(xi, 'b (head Nh Nw c) nh nw -> b head (Nh Nw) (nh nw) c', 
-                                                        head=self.num_heads, Nh=Nh, Nw=Nw)
-
-            xs.append(xi)
-            Ns.append([Nh, Nw])
-
-            assert n == 0 or (n[0] == nh and n[1] == nw), "Please check that the number of small windows in all big windows is equal to ensure parallel calculation of attention."
-            n = [nh, nw]
-        
-        # x: (b, head, Ns, l, c)
-        x = torch.cat(xs, dim=2)
-        return x, Ns, n
-    
-    def window_scattering_3d(self, outs, Ns, n):
-        nh, nw, nd = n
-        outs = rearrange(outs, 'b head Ns (nh nw nd) c -> b head Ns c nh nw nd', nh=nh, nw=nw, nd=nd)
-
-        idx = 0
-        outs_ = []
-        for i in range(self.num_bswin):
-            # outs: (b, head, Ns, c, nh, nw, nd)
-            Nh, Nw, Nd = Ns[i]
-            N = Nh * Nw * Nd
-
-            # out: (b, head, N, c, s_win_h, s_win_w, s_win_d)
-            out = rearrange(outs[:, :, idx:idx+N], 'b head N c nh nw nd -> b (head N c) nh nw nd', nh=nh, nw=nw, nd=nd)
-            out = F.interpolate(out, scale_factor=self.small_window_size[i], mode='trilinear', align_corners=True)
-            
-            # out: (b, 1, head, c, h, w, d)
-            out = rearrange(out, 'b (head Nh Nw Nd c) winh winw wind -> b 1 head c (Nh winh) (Nw winw) (Nd wind)', 
-                                                                            head=self.num_heads, Nh=Nh, Nw=Nw, Nd=Nd)
-            outs_.append(out)
-            idx += N
-        out = torch.cat(outs_, dim=1)
-        out = rearrange(out, 'b bswin head c h w d -> b (bswin head c) h w d')
-        # out: (b, bswin*head*c, h, w, d)
-        return out
-    
-    def window_scattering_2d(self, outs, Ns, n):
-        nh, nw = n
-        outs = rearrange(outs, 'b hNs (nh nw) c -> b hNs c nh nw', nh=nh, nw=nw)
-
-        idx = 0
-        outs_ = []
-        for i in range(self.num_bswin):
-            # outs: (b, head, Ns, c, nh, nw)
-            Nh, Nw = Ns[i]
-            N = Nh * Nw
-
-            # out: (b, head, N, c, s_win_h, s_win_w)
-            out = rearrange(outs[:, :, idx:idx+N], 'b head N c nh nw -> b (head N c) nh nw', nh=nh, nw=nw)
-            out = F.interpolate(out, scale_factor=self.small_window_size[i], mode='bilinear', align_corners=True)
-            
-            # out: (b, 1, head, c, h, w, d)
-            out = rearrange(out, 'b (head Nh Nw c) winh winw -> b 1 head c (Nh winh) (Nw winw)', 
-                                                            head=self.num_heads, Nh=Nh, Nw=Nw)
-            outs_.append(out)
-            idx += N
-        out = torch.cat(outs_, dim=1)
-        out = rearrange(out, 'b bswin head c h w -> b (bswin head c) h w')
-        # out: (b, bswin*head*c, h, w)
-        return out
+        out: (sum_i b*N_i, head, m*l, c) -> (b, m, bswin*head*c, *spatial)
+        """
+        mode = 'trilinear' if self.dim == 3 else 'bilinear'
+        d = self.dim
+        axes = range(d)
+        counts = [[n // w for n, w in zip(spatial, big)] for big in self.big_window_size]
+        scales = []
+        for oi, count, small in zip(out.split([b * prod(c) for c in counts]), counts, self.small_window_size):
+            # (b, N.., head, m, n.., c) -> (b*m*N, head*c, n..)
+            oi = oi.reshape(b, *count, self.num_heads, m, *self.n_hwd, -1)
+            oi = oi.permute(0, d + 2, *[1 + a for a in axes], d + 1, 2 * d + 3, *[d + 3 + a for a in axes])
+            oi = oi.reshape(b * m * prod(count), -1, *self.n_hwd)
+            if prod(small) > 1:
+                oi = F.interpolate(oi, scale_factor=small, mode=mode, align_corners=True)
+            # (b, m, N.., head*c, w..) -> (b, m, head*c, *spatial)
+            oi = oi.reshape(b, m, *count, *oi.shape[1:])
+            oi = oi.permute(0, 1, d + 2, *[v for a in axes for v in (2 + a, d + 3 + a)])
+            scales.append(oi.reshape(b, m, -1, *spatial))
+        return torch.cat(scales, dim=2)
 
     def forward(self, query, key, value):
         if self.num_heads == 0:
             return query
-        
-        # q,k,v: (b, bswin*head*c, h, w, d) or (b, bswin*head*c, h, w)
-        input_size = query.size()
-
-        # q, k, v: (b, head, Ns, l, c)
-        q, Ns, n = self.window_gathering(query)
-        k, _ , _ = self.window_gathering(key)
-        v, _ , _ = self.window_gathering(value)
-
-        # attn: (b, head, Ns, l, c)
+        # q,k,v: (b, bswin*head*c, *spatial)
+        q, k, v = (self.window_gathering(t.unsqueeze(1)) for t in (query, key, value))
         attn = self.attention_operation(q, k, v)
-
-        # attn: (b, bswin*head*c, h, w, d) or (b, bswin*head*c, h, w)
-        attn = self.window_scattering(attn, Ns, n)
-        return attn
+        return self.window_scattering(attn, query.shape[0], 1, query.shape[2:]).squeeze(1)
     
 class MultiModal_Paired_Windows_Attention(Paired_Windows_Attention):
 
@@ -307,60 +224,23 @@ class MultiModal_Paired_Windows_Attention(Paired_Windows_Attention):
             self.qkv_proj = nn.ModuleList(qkv_proj)
             self.mix_channels = nn.ModuleList(mix_channels)
             self.dropout_attns = nn.ModuleList(dropout_attns)
-            self.window_gathering = self.window_gathering_3d if self.dim == 3 else self.window_gathering_2d
-            self.window_scattering = self.window_scattering_3d if self.dim == 3 else self.window_scattering_2d
 
     def forward(self, inputs):
         
         if self.num_heads == 0:
             return inputs
 
-        # inputs: List[Tensor], (b, c, h, w, d) or (b, c, h, w)
-        # num_modalities: len(inputs)
+        # inputs: List[Tensor], (b, c, *spatial)
         assert len(inputs) == self.num_modalities, f"The number of modalities should be {self.num_modalities}, but got {len(inputs)}"
-        
-        querys, keys, values = [], [], []
-        for m in range(self.num_modalities):
-            # q, k, v: (b, bswin*head*c, h, w, d) or (b, bswin*head*c, h, w)
-            querys.append(self.qkv_proj[m][0](self.input_norms[m](inputs[m])))
-            keys.append(self.qkv_proj[m][1](self.input_norms[m](inputs[m])))
-            values.append(self.qkv_proj[m][2](self.input_norms[m](inputs[m])))
-        
-        q, k, v = None, None, None
-        n, Ns = None, None
-        l = None
-        
-        for m in range(self.num_modalities):
-            # q, k, v: (b, head, Ns, l, c)
-            q, Ns, n = self.window_gathering(querys[m])
-            k, _ , _ = self.window_gathering(keys[m])
-            v, _ , _ = self.window_gathering(values[m])
-            # print(f'v.size(): {v.size()}')
-            querys[m] = q
-            keys[m]   = k
-            values[m] = v
-            if l is None:
-                l = q.shape[-2]
-            else:
-                assert l == q.shape[-2], f"The seq length in all modalities should be equal, but got {l} and {q.shape[-2]}"
-
-        # attn: (b, head, Ns, ml, c)
-        # print([v.size() for v in values])
-        querys = torch.cat(querys, dim=-2)
-        keys   = torch.cat(keys,   dim=-2)
-        values = torch.cat(values, dim=-2)
-
-        # attn: (b, head, Ns, ml, c)
-        attn = self.attention_operation(querys, keys, values)
-        attn = rearrange(attn, 'b head Ns (m l) c -> b head Ns m l c', l=l)
-
-        attns = []
-        for m in range(self.num_modalities):
-            # attn_m: (b, bswin*head*c, h, w, d) or (b, bswin*head*c, h, w)
-            attn_m = self.window_scattering(attn[:, :, :, m], Ns, n)
-            attn_m = inputs[m] + self.dropout_attns[m](self.mix_channels[m](attn_m))
-            attns.append(attn_m)
-        return attns
+        normed = [norm(x) for norm, x in zip(self.input_norms, inputs)]
+        # q, k, v: (windows, head, m*l, c); modalities share every window
+        q, k, v = (self.window_gathering(torch.stack([proj[j](x) for proj, x in zip(self.qkv_proj, normed)], dim=1))
+                   for j in range(3))
+        attn = self.attention_operation(q, k, v)
+        # attn: (b, m, bswin*head*c, *spatial)
+        attn = self.window_scattering(attn, inputs[0].shape[0], self.num_modalities, inputs[0].shape[2:])
+        return [x + drop(mix(attn[:, m]))
+                for m, (x, mix, drop) in enumerate(zip(inputs, self.mix_channels, self.dropout_attns))]
     
 
 class Paired_Windows_TransformerBlock(nn.Module):

@@ -119,7 +119,7 @@ class PositionalEmbedding(nn.Module):
     
     def get_relative_position_bias(self, l):
         relative_position_bias = self.relative_position_bias_table[
-            self.relative_position_index.clone()[:l, :l].reshape(-1)
+            self.relative_position_index[:l, :l].reshape(-1)
         ]
         relative_position_bias = rearrange(relative_position_bias, '(l1 l2) head -> head l1 l2', l1=l, l2=l)
         return relative_position_bias

@@ -262,20 +262,26 @@
         "num_epochs": 1000
       },
       "resources": {
-        "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
+        "method": "Measured on the profiling GPU: L training peak reserved memory bounds the crop and batch; B batch-1 inference memory and latency select the crop",
         "training_memory_target_gib": 24.0,
         "runtime_reserve_gib": 2,
-        "training_tensor_budget_gib": 22.0,
-        "memory_proxy_coefficients": [
-          0.9311187002204312,
-          3.6222506796570855
-        ],
+        "training_memory_budget_gib": 22.0,
         "batch_coverage_cap": 101,
         "forced_foreground_fraction": 0.5,
-        "estimated_training_reserved_gib": 11.817441441986508,
-        "parameters": 3585427,
-        "training_flops_per_batch": 716585205760,
-        "inference_flops_per_patch": 66899394560.0,
+        "measured_training_memory": [
+          {
+            "model_size": "L",
+            "batch": 2,
+            "oom": false,
+            "peak_reserved_gib": 18.669921875
+          },
+          {
+            "model_size": "L",
+            "batch": 4,
+            "oom": true,
+            "peak_reserved_gib": 23.34375
+          }
+        ],
         "patch_selection": {
           "policy": {
             "reduction_units": [
@@ -309,7 +315,7 @@
               ],
               "coverage_fraction": 1.0,
               "m1_mib": 1338.40869140625,
-              "t1_ms": 61.95814514160156,
+              "t1_ms": 62.068735122680664,
               "trainable": true,
               "pareto": true,
               "selected": true
@@ -322,9 +328,9 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 1398.10400390625,
-              "t1_ms": 44.18508720397949,
+              "t1_ms": 46.156288146972656,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -335,7 +341,7 @@
               ],
               "coverage_fraction": 1.0,
               "m1_mib": 1338.40869140625,
-              "t1_ms": 61.9422721862793,
+              "t1_ms": 61.98527908325195,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -348,7 +354,7 @@
               ],
               "coverage_fraction": 0.8,
               "m1_mib": 583.048828125,
-              "t1_ms": 57.29792022705078,
+              "t1_ms": 57.41721534729004,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -361,7 +367,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 385.21435546875,
-              "t1_ms": 43.514320373535156,
+              "t1_ms": 44.13747024536133,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -374,7 +380,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 1398.10400390625,
-              "t1_ms": 44.29568099975586,
+              "t1_ms": 42.70540809631348,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -387,7 +393,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 385.21435546875,
-              "t1_ms": 43.89068794250488,
+              "t1_ms": 44.291072845458984,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -400,7 +406,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 262.4072265625,
-              "t1_ms": 38.56486511230469,
+              "t1_ms": 37.237247467041016,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -412,10 +418,10 @@
                 320
               ],
               "coverage_fraction": 0.9375,
-              "m1_mib": null,
-              "t1_ms": null,
-              "trainable": false,
-              "pareto": false,
+              "m1_mib": 1198.1181640625,
+              "t1_ms": 56.53094291687012,
+              "trainable": true,
+              "pareto": true,
               "selected": false
             },
             {
@@ -426,7 +432,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 822.4892578125,
-              "t1_ms": 44.58188819885254,
+              "t1_ms": 44.542463302612305,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -439,9 +445,9 @@
               ],
               "coverage_fraction": 0.5625,
               "m1_mib": 841.59716796875,
-              "t1_ms": 36.369407653808594,
+              "t1_ms": 33.034751892089844,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -452,7 +458,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 822.4892578125,
-              "t1_ms": 44.21017646789551,
+              "t1_ms": 44.349952697753906,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -465,7 +471,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 570.447265625,
-              "t1_ms": 34.869760513305664,
+              "t1_ms": 35.17951965332031,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -478,7 +484,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 367.31201171875,
-              "t1_ms": 30.944255828857422,
+              "t1_ms": 29.216256141662598,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -491,7 +497,7 @@
               ],
               "coverage_fraction": 0.5625,
               "m1_mib": 841.59716796875,
-              "t1_ms": 33.147905349731445,
+              "t1_ms": 34.425344467163086,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -504,7 +510,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 367.31201171875,
-              "t1_ms": 31.737855911254883,
+              "t1_ms": 33.99577522277832,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -517,7 +523,7 @@
               ],
               "coverage_fraction": 0.3375,
               "m1_mib": 596.79052734375,
-              "t1_ms": 31.548416137695312,
+              "t1_ms": 30.31552028656006,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -543,7 +549,7 @@
               ],
               "coverage_fraction": 0.625,
               "m1_mib": 1815.37109375,
-              "t1_ms": 39.28783988952637,
+              "t1_ms": 39.16851043701172,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -556,7 +562,7 @@
               ],
               "coverage_fraction": 0.46875,
               "m1_mib": 1066.33251953125,
-              "t1_ms": 36.057600021362305,
+              "t1_ms": 33.63328170776367,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -569,7 +575,7 @@
               ],
               "coverage_fraction": 0.625,
               "m1_mib": 1815.37109375,
-              "t1_ms": 39.24479866027832,
+              "t1_ms": 42.934783935546875,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -582,9 +588,9 @@
               ],
               "coverage_fraction": 0.5,
               "m1_mib": 685.5234375,
-              "t1_ms": 34.95065689086914,
+              "t1_ms": 34.39206504821777,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -595,7 +601,7 @@
               ],
               "coverage_fraction": 0.375,
               "m1_mib": 716.01513671875,
-              "t1_ms": 31.959552764892578,
+              "t1_ms": 30.25817584991455,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -608,7 +614,7 @@
               ],
               "coverage_fraction": 0.46875,
               "m1_mib": 1066.33251953125,
-              "t1_ms": 33.57900810241699,
+              "t1_ms": 30.237184524536133,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -621,7 +627,7 @@
               ],
               "coverage_fraction": 0.375,
               "m1_mib": 716.01513671875,
-              "t1_ms": 30.721023559570312,
+              "t1_ms": 29.856767654418945,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -634,9 +640,9 @@
               ],
               "coverage_fraction": 0.28125,
               "m1_mib": 763.466796875,
-              "t1_ms": 29.906415939331055,
+              "t1_ms": 29.618688583374023,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             }
           ]
@@ -937,20 +943,26 @@
         "num_epochs": 1000
       },
       "resources": {
-        "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
+        "method": "Measured on the profiling GPU: L training peak reserved memory bounds the crop and batch; B batch-1 inference memory and latency select the crop",
         "training_memory_target_gib": 24.0,
         "runtime_reserve_gib": 2,
-        "training_tensor_budget_gib": 22.0,
-        "memory_proxy_coefficients": [
-          0.9311187002204312,
-          3.6222506796570855
-        ],
+        "training_memory_budget_gib": 22.0,
         "batch_coverage_cap": 101,
         "forced_foreground_fraction": 0.5,
-        "estimated_training_reserved_gib": 12.425825102168357,
-        "parameters": 5297171,
-        "training_flops_per_batch": 1177190563840,
-        "inference_flops_per_patch": 84776960000.0,
+        "measured_training_memory": [
+          {
+            "model_size": "L",
+            "batch": 2,
+            "oom": false,
+            "peak_reserved_gib": 18.669921875
+          },
+          {
+            "model_size": "L",
+            "batch": 4,
+            "oom": true,
+            "peak_reserved_gib": 23.34375
+          }
+        ],
         "patch_selection": {
           "policy": {
             "reduction_units": [
@@ -984,7 +996,7 @@
               ],
               "coverage_fraction": 1.0,
               "m1_mib": 1338.40869140625,
-              "t1_ms": 61.95814514160156,
+              "t1_ms": 62.068735122680664,
               "trainable": true,
               "pareto": true,
               "selected": true
@@ -997,9 +1009,9 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 1398.10400390625,
-              "t1_ms": 44.18508720397949,
+              "t1_ms": 46.156288146972656,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -1010,7 +1022,7 @@
               ],
               "coverage_fraction": 1.0,
               "m1_mib": 1338.40869140625,
-              "t1_ms": 61.9422721862793,
+              "t1_ms": 61.98527908325195,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1023,7 +1035,7 @@
               ],
               "coverage_fraction": 0.8,
               "m1_mib": 583.048828125,
-              "t1_ms": 57.29792022705078,
+              "t1_ms": 57.41721534729004,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1036,7 +1048,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 385.21435546875,
-              "t1_ms": 43.514320373535156,
+              "t1_ms": 44.13747024536133,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1049,7 +1061,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 1398.10400390625,
-              "t1_ms": 44.29568099975586,
+              "t1_ms": 42.70540809631348,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1062,7 +1074,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 385.21435546875,
-              "t1_ms": 43.89068794250488,
+              "t1_ms": 44.291072845458984,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1075,7 +1087,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 262.4072265625,
-              "t1_ms": 38.56486511230469,
+              "t1_ms": 37.237247467041016,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1087,10 +1099,10 @@
                 320
               ],
               "coverage_fraction": 0.9375,
-              "m1_mib": null,
-              "t1_ms": null,
-              "trainable": false,
-              "pareto": false,
+              "m1_mib": 1198.1181640625,
+              "t1_ms": 56.53094291687012,
+              "trainable": true,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1101,7 +1113,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 822.4892578125,
-              "t1_ms": 44.58188819885254,
+              "t1_ms": 44.542463302612305,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1114,9 +1126,9 @@
               ],
               "coverage_fraction": 0.5625,
               "m1_mib": 841.59716796875,
-              "t1_ms": 36.369407653808594,
+              "t1_ms": 33.034751892089844,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1127,7 +1139,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 822.4892578125,
-              "t1_ms": 44.21017646789551,
+              "t1_ms": 44.349952697753906,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1140,7 +1152,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 570.447265625,
-              "t1_ms": 34.869760513305664,
+              "t1_ms": 35.17951965332031,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1153,7 +1165,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 367.31201171875,
-              "t1_ms": 30.944255828857422,
+              "t1_ms": 29.216256141662598,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1166,7 +1178,7 @@
               ],
               "coverage_fraction": 0.5625,
               "m1_mib": 841.59716796875,
-              "t1_ms": 33.147905349731445,
+              "t1_ms": 34.425344467163086,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1179,7 +1191,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 367.31201171875,
-              "t1_ms": 31.737855911254883,
+              "t1_ms": 33.99577522277832,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1192,7 +1204,7 @@
               ],
               "coverage_fraction": 0.3375,
               "m1_mib": 596.79052734375,
-              "t1_ms": 31.548416137695312,
+              "t1_ms": 30.31552028656006,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1218,7 +1230,7 @@
               ],
               "coverage_fraction": 0.625,
               "m1_mib": 1815.37109375,
-              "t1_ms": 39.28783988952637,
+              "t1_ms": 39.16851043701172,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1231,7 +1243,7 @@
               ],
               "coverage_fraction": 0.46875,
               "m1_mib": 1066.33251953125,
-              "t1_ms": 36.057600021362305,
+              "t1_ms": 33.63328170776367,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1244,7 +1256,7 @@
               ],
               "coverage_fraction": 0.625,
               "m1_mib": 1815.37109375,
-              "t1_ms": 39.24479866027832,
+              "t1_ms": 42.934783935546875,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1257,9 +1269,9 @@
               ],
               "coverage_fraction": 0.5,
               "m1_mib": 685.5234375,
-              "t1_ms": 34.95065689086914,
+              "t1_ms": 34.39206504821777,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1270,7 +1282,7 @@
               ],
               "coverage_fraction": 0.375,
               "m1_mib": 716.01513671875,
-              "t1_ms": 31.959552764892578,
+              "t1_ms": 30.25817584991455,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1283,7 +1295,7 @@
               ],
               "coverage_fraction": 0.46875,
               "m1_mib": 1066.33251953125,
-              "t1_ms": 33.57900810241699,
+              "t1_ms": 30.237184524536133,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1296,7 +1308,7 @@
               ],
               "coverage_fraction": 0.375,
               "m1_mib": 716.01513671875,
-              "t1_ms": 30.721023559570312,
+              "t1_ms": 29.856767654418945,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1309,9 +1321,9 @@
               ],
               "coverage_fraction": 0.28125,
               "m1_mib": 763.466796875,
-              "t1_ms": 29.906415939331055,
+              "t1_ms": 29.618688583374023,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             }
           ]
@@ -1612,20 +1624,26 @@
         "num_epochs": 1000
       },
       "resources": {
-        "method": "GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references",
+        "method": "Measured on the profiling GPU: L training peak reserved memory bounds the crop and batch; B batch-1 inference memory and latency select the crop",
         "training_memory_target_gib": 24.0,
         "runtime_reserve_gib": 2,
-        "training_tensor_budget_gib": 22.0,
-        "memory_proxy_coefficients": [
-          0.9311187002204312,
-          3.6222506796570855
-        ],
+        "training_memory_budget_gib": 22.0,
         "batch_coverage_cap": 101,
         "forced_foreground_fraction": 0.5,
-        "estimated_training_reserved_gib": 19.752557102548003,
-        "parameters": 8413072,
-        "training_flops_per_batch": 1840333127680,
-        "inference_flops_per_patch": 120268226560.0,
+        "measured_training_memory": [
+          {
+            "model_size": "L",
+            "batch": 2,
+            "oom": false,
+            "peak_reserved_gib": 18.669921875
+          },
+          {
+            "model_size": "L",
+            "batch": 4,
+            "oom": true,
+            "peak_reserved_gib": 23.34375
+          }
+        ],
         "patch_selection": {
           "policy": {
             "reduction_units": [
@@ -1659,7 +1677,7 @@
               ],
               "coverage_fraction": 1.0,
               "m1_mib": 1338.40869140625,
-              "t1_ms": 61.95814514160156,
+              "t1_ms": 62.068735122680664,
               "trainable": true,
               "pareto": true,
               "selected": true
@@ -1672,9 +1690,9 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 1398.10400390625,
-              "t1_ms": 44.18508720397949,
+              "t1_ms": 46.156288146972656,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             },
             {
@@ -1685,7 +1703,7 @@
               ],
               "coverage_fraction": 1.0,
               "m1_mib": 1338.40869140625,
-              "t1_ms": 61.9422721862793,
+              "t1_ms": 61.98527908325195,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1698,7 +1716,7 @@
               ],
               "coverage_fraction": 0.8,
               "m1_mib": 583.048828125,
-              "t1_ms": 57.29792022705078,
+              "t1_ms": 57.41721534729004,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1711,7 +1729,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 385.21435546875,
-              "t1_ms": 43.514320373535156,
+              "t1_ms": 44.13747024536133,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1724,7 +1742,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 1398.10400390625,
-              "t1_ms": 44.29568099975586,
+              "t1_ms": 42.70540809631348,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1737,7 +1755,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 385.21435546875,
-              "t1_ms": 43.89068794250488,
+              "t1_ms": 44.291072845458984,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1750,7 +1768,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 262.4072265625,
-              "t1_ms": 38.56486511230469,
+              "t1_ms": 37.237247467041016,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1762,10 +1780,10 @@
                 320
               ],
               "coverage_fraction": 0.9375,
-              "m1_mib": null,
-              "t1_ms": null,
-              "trainable": false,
-              "pareto": false,
+              "m1_mib": 1198.1181640625,
+              "t1_ms": 56.53094291687012,
+              "trainable": true,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1776,7 +1794,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 822.4892578125,
-              "t1_ms": 44.58188819885254,
+              "t1_ms": 44.542463302612305,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1789,9 +1807,9 @@
               ],
               "coverage_fraction": 0.5625,
               "m1_mib": 841.59716796875,
-              "t1_ms": 36.369407653808594,
+              "t1_ms": 33.034751892089844,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1802,7 +1820,7 @@
               ],
               "coverage_fraction": 0.75,
               "m1_mib": 822.4892578125,
-              "t1_ms": 44.21017646789551,
+              "t1_ms": 44.349952697753906,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1815,7 +1833,7 @@
               ],
               "coverage_fraction": 0.6,
               "m1_mib": 570.447265625,
-              "t1_ms": 34.869760513305664,
+              "t1_ms": 35.17951965332031,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1828,7 +1846,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 367.31201171875,
-              "t1_ms": 30.944255828857422,
+              "t1_ms": 29.216256141662598,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1841,7 +1859,7 @@
               ],
               "coverage_fraction": 0.5625,
               "m1_mib": 841.59716796875,
-              "t1_ms": 33.147905349731445,
+              "t1_ms": 34.425344467163086,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1854,7 +1872,7 @@
               ],
               "coverage_fraction": 0.45,
               "m1_mib": 367.31201171875,
-              "t1_ms": 31.737855911254883,
+              "t1_ms": 33.99577522277832,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1867,7 +1885,7 @@
               ],
               "coverage_fraction": 0.3375,
               "m1_mib": 596.79052734375,
-              "t1_ms": 31.548416137695312,
+              "t1_ms": 30.31552028656006,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1893,7 +1911,7 @@
               ],
               "coverage_fraction": 0.625,
               "m1_mib": 1815.37109375,
-              "t1_ms": 39.28783988952637,
+              "t1_ms": 39.16851043701172,
               "trainable": true,
               "pareto": true,
               "selected": false
@@ -1906,7 +1924,7 @@
               ],
               "coverage_fraction": 0.46875,
               "m1_mib": 1066.33251953125,
-              "t1_ms": 36.057600021362305,
+              "t1_ms": 33.63328170776367,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1919,7 +1937,7 @@
               ],
               "coverage_fraction": 0.625,
               "m1_mib": 1815.37109375,
-              "t1_ms": 39.24479866027832,
+              "t1_ms": 42.934783935546875,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1932,9 +1950,9 @@
               ],
               "coverage_fraction": 0.5,
               "m1_mib": 685.5234375,
-              "t1_ms": 34.95065689086914,
+              "t1_ms": 34.39206504821777,
               "trainable": true,
-              "pareto": false,
+              "pareto": true,
               "selected": false
             },
             {
@@ -1945,7 +1963,7 @@
               ],
               "coverage_fraction": 0.375,
               "m1_mib": 716.01513671875,
-              "t1_ms": 31.959552764892578,
+              "t1_ms": 30.25817584991455,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1958,7 +1976,7 @@
               ],
               "coverage_fraction": 0.46875,
               "m1_mib": 1066.33251953125,
-              "t1_ms": 33.57900810241699,
+              "t1_ms": 30.237184524536133,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1971,7 +1989,7 @@
               ],
               "coverage_fraction": 0.375,
               "m1_mib": 716.01513671875,
-              "t1_ms": 30.721023559570312,
+              "t1_ms": 29.856767654418945,
               "trainable": true,
               "pareto": false,
               "selected": false
@@ -1984,9 +2002,9 @@
               ],
               "coverage_fraction": 0.28125,
               "m1_mib": 763.466796875,
-              "t1_ms": 29.906415939331055,
+              "t1_ms": 29.618688583374023,
               "trainable": true,
-              "pareto": true,
+              "pareto": false,
               "selected": false
             }
           ]

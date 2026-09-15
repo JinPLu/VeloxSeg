@@ -1,21 +1,17 @@
 """One dataset-independent VeloxSeg planning policy.
 
 Geometry comes from nnUNet 2.8.1; the shared model and optimization blueprint
-comes from the VeloxSeg paper and released reference configuration.
+comes from the VeloxSeg paper and released reference configuration. Training
+memory and inference cost are measured on the target GPU by
+nnunet/cost_profile.py; this module decides what to measure and what the
+measurements imply.
 """
 from fractions import Fraction
 from itertools import product
 from math import log2, prod
 
 import numpy as np
-import torch
-from torch._subclasses.fake_tensor import FakeTensorMode
-from torch.nn.attention import SDPBackend, sdpa_kernel
-from torch.utils._python_dispatch import TorchDispatchMode
-from torch.utils.flop_counter import FlopCounterMode
 
-from model.VeloxSeg import VeloxSeg
-from model.loss import VeloxSegLoss
 from nnunetv2.experiment_planning.experiment_planners.network_topology import get_pool_and_conv_props
 from nnunetv2.training.loss.compound_losses import DC_and_BCE_loss, DC_and_CE_loss
 from nnunetv2.training.loss.dice import MemoryEfficientSoftDiceLoss
@@ -86,36 +82,15 @@ BATCH_POLICY = {
 # trainable crop, the least batch-1 memory wins. The fraction awaits
 # calibration by full training; 1.0 keeps the largest trainable crop.
 PATCH_POLICY = {'reduction_units': (0, 1, 2), 'coverage_fraction': 1.0}
+# The model size each measurement uses: L's training memory decides
+# trainability and the shared batch, B's batch-1 inference cost the crop.
+MEASURED_SIZES = {'training': 'L', 'inference': 'B'}
 TRAINING_MEMORY_TARGET_GIB = 24
-# AutoPET L at 192x256x256/batch8 estimated 23.425 GiB but OOMed on
-# a 23.69-GiB RTX3090 during backward (768-MiB allocation). The tensor
-# proxy is not a device-capacity bound: leave room for CUDA/runtime allocations
-# and its measured prediction error before accepting a family geometry. The
-# next 192x224x256 candidate reserved 23.09 GiB versus a 22.07-GiB estimate,
-# before accounting for non-PyTorch CUDA memory, so a 1-GiB reserve is too small.
+# Measured peaks count PyTorch's caching allocator only. The CUDA context and
+# library handles live outside it: L training OOMed on a 23.69-GiB RTX 3090 with
+# 23.34 GiB reserved. The reserve also covers a long run's allocations beyond
+# the few measured steps.
 TRAINING_RUNTIME_RESERVE_GIB = 2
-
-
-# Compact-entry full-objective CUDA references, 2026-09-09. RTX 3090,
-# torch 2.6.0/cu124, CUDA FP16 + FP32 losses, AdamW, 3 updates, benchmark=True.
-# CPU autocast is only a proxy. Account separately for saved graph storage and
-# full-resolution segmentation/reconstruction outputs: one ratio overestimates
-# dual-modality costs while missing region/reconstruction output workspaces.
-# Fit two shared coefficients; never select a coefficient by dataset name.
-MEMORY_REFERENCES = (
-    {'patch': (160, 192, 160), 'batch': 19,
-     'saved_activation_bytes': 16417561272, 'fixed_bytes': 42447200,
-     'full_resolution_output_bytes': 19 * 160 * 192 * 160 * 7 * 4,
-     'peak_reserved_bytes': int(23.09765625 * 2 ** 30)},
-    {'patch': (224, 320, 320), 'batch': 5,
-     'saved_activation_bytes': 19279865964, 'fixed_bytes': 147690888,
-     'full_resolution_output_bytes': 5 * 224 * 320 * 320 * 4 * 4,
-     'peak_reserved_bytes': int(23.046875 * 2 ** 30)},
-)
-MEMORY_PROXY_COEFFICIENTS = np.linalg.solve(
-    [[row['saved_activation_bytes'], row['full_resolution_output_bytes']]
-     for row in MEMORY_REFERENCES],
-    [row['peak_reserved_bytes'] - row['fixed_bytes'] for row in MEMORY_REFERENCES])
 
 
 def divisors(size):
@@ -252,73 +227,6 @@ def segmentation_loss(label_manager, batch_dice=False, ddp=False):
                          dice_class=MemoryEfficientSoftDiceLoss)
 
 
-class SyntheticTargetReads(TorchDispatchMode):
-    """Answer the objective's data-dependent read for the synthetic target.
-
-    nnUNet's DC_and_CE_loss with an ignore label evaluates `num_fg > 0` in
-    Python, which a FakeTensor cannot answer. The all-background estimation
-    target has no ignored voxel, so that read is True, as in training batches;
-    the loss module and its graph are the real ones.
-    """
-    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
-        if func is torch.ops.aten._local_scalar_dense.default:
-            return True
-        return func(*args, **(kwargs or {}))
-
-
-def estimate_training_tensors(architecture, label_manager, batch_size):
-    """Inventory mixed-precision network and FP32 losses without image data.
-
-    Count saved activation storage, full-resolution outputs and fixed AdamW
-    state, then apply the measured reserved-memory references above. Math SDPA and CPU FP16 autocast
-    are a portable proxy, not a CUDA allocation trace. The calibration includes
-    observed workspace/allocator costs but does not guarantee other devices.
-    """
-    kwargs = architecture['arch_kwargs']
-    with torch.random.fork_rng(devices=[]):
-        network = VeloxSeg(**kwargs, n_classes=label_manager.num_segmentation_heads)
-    persistent = sum(t.numel() * t.element_size() for t in network.buffers())
-    parameter_bytes = sum(t.numel() * t.element_size() for t in network.parameters())
-    mode = FakeTensorMode(allow_non_fake_inputs=True)
-    saved = {}
-    with mode, sdpa_kernel(SDPBackend.MATH):
-        # FakeTensor's converter memo is weak: retain these tensors so storage
-        # identities cannot be recycled while the forward graph is inventoried.
-        fake_persistent = [mode.from_tensor(t)
-                           for t in [*network.parameters(), *network.buffers()]]
-        excluded = {t.untyped_storage()._cdata for t in fake_persistent}
-        def pack(tensor):
-            storage = tensor.untyped_storage()
-            if storage._cdata not in excluded:
-                saved[storage._cdata] = storage.nbytes()
-            return tensor
-        x = torch.randn(batch_size, sum(kwargs['in_ch']), *kwargs['input_size'])
-        channels = label_manager.num_segmentation_heads + int(label_manager.has_ignore_label) if label_manager.has_regions else 1
-        target = torch.zeros(batch_size, channels, *kwargs['input_size'],
-                             dtype=torch.float32 if label_manager.has_regions else torch.long)
-        objective = VeloxSegLoss(segmentation_loss(label_manager), kwargs['in_ch'])
-        with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor), \
-                FlopCounterMode(display=False) as counter, SyntheticTargetReads(), \
-                torch.autocast('cpu', dtype=torch.float16):
-            loss = objective(network(x), target, x)
-            loss.backward()
-        training_flops = counter.get_total_flops()
-        network.eval()
-        with FlopCounterMode(display=False) as counter, torch.no_grad(), \
-                torch.autocast('cpu', dtype=torch.float16):
-            network(x)
-        inference_flops = counter.get_total_flops()
-    activation_bytes = sum(saved.values())
-    fixed_bytes = 4 * parameter_bytes + persistent
-    output_bytes = (batch_size * prod(kwargs['input_size']) *
-                    (label_manager.num_segmentation_heads + sum(kwargs['in_ch'])) * 4)
-    estimated = fixed_bytes + float(MEMORY_PROXY_COEFFICIENTS @ [activation_bytes, output_bytes])
-    return {'saved_activation_bytes': activation_bytes, 'fixed_bytes': fixed_bytes,
-            'full_resolution_output_bytes': output_bytes,
-            'estimated_reserved_bytes': estimated, 'parameters': parameter_bytes // 4,
-            'training_flops': training_flops, 'inference_flops': inference_flops}
-
-
 def initial_patch(spacing, median_shape):
     inverse_spacing = 1 / np.asarray(spacing)
     # nnUNet's initial physical aspect ratio and 256^3 search envelope.
@@ -348,13 +256,14 @@ def reduce_axis(patch, spacing, axis):
 
 
 def smaller_patch(patch, spacing, median_shape):
+    """nnUNet's next smaller envelope, or None at the minimum legal geometry."""
     # Upstream relative-coverage axis order; unlike upstream, an axis that cannot
     # shrink legally passes the step to the next axis.
     for axis in np.argsort(np.asarray(patch) / np.asarray(median_shape))[::-1]:
         reduced = reduce_axis(patch, spacing, axis)
         if reduced is not None:
             return reduced
-    raise ValueError('The training tensor budget cannot fit the minimum legal geometry')
+    return None
 
 
 def candidate_patches(envelope, spacing):
@@ -372,74 +281,129 @@ def candidate_patches(envelope, spacing):
     return candidates
 
 
-def training_tensor_budget(memory_gb):
-    if memory_gb <= TRAINING_RUNTIME_RESERVE_GIB:
-        raise ValueError('gpu_memory_target_in_gb must exceed the runtime reserve')
-    return (memory_gb - TRAINING_RUNTIME_RESERVE_GIB) * 2 ** 30
-
-
-def candidate_family(spacing, median_shape, dataset_json, label_manager, memory_gb):
-    """S/B/L candidates around the first envelope with a trainable crop.
-
-    A crop is trainable when L fits the tensor budget at the minimum batch.
-    Without one, the envelope takes nnUNet's next smaller step and the
-    candidates are regenerated around it.
-    """
-    in_ch = modality_channels(dataset_json)
-    budget = training_tensor_budget(memory_gb)
-    envelope = initial_patch(spacing, median_shape)
-    while True:
-        candidates = []
-        for patch in candidate_patches(envelope, spacing):
-            architectures = {size: architecture_for_patch(patch, spacing, in_ch, size)
-                             for size in MODEL_CAPACITIES}
-            cost = estimate_training_tensors(architectures['L'], label_manager,
-                                             BATCH_POLICY['minimum_batch_size'])['estimated_reserved_bytes']
-            print(f'VeloxSeg candidate {patch_key(patch)}: L batch{BATCH_POLICY["minimum_batch_size"]} '
-                  f'estimated memory {cost / 2**30:.3f} GiB', flush=True)
-            candidates.append({'patch': patch, 'architectures': architectures, 'trainable': cost <= budget})
-        if any(row['trainable'] for row in candidates):
-            return candidates
-        envelope = smaller_patch(geometry(envelope, spacing)[0], spacing, median_shape)
-
-
 def patch_key(patch):
     return 'x'.join(str(n) for n in patch)
 
 
-def select_patch(candidates, profile):
+def training_memory_budget_gib(memory_gb):
+    if memory_gb <= TRAINING_RUNTIME_RESERVE_GIB:
+        raise ValueError('gpu_memory_target_in_gb must exceed the runtime reserve')
+    return memory_gb - TRAINING_RUNTIME_RESERVE_GIB
+
+
+def candidate_family(spacing, median_shape, dataset_json, memory_gb):
+    """Candidate crops along nnUNet's envelope chain, the input of nnunet/cost_profile.py.
+
+    The chain starts at nnUNet's initial envelope and takes its next smaller
+    step down to the minimum legal geometry; each envelope lists its candidate
+    crops. A crop carries its S/B/L architectures and the power-of-two batches
+    from the minimum up to the dataset-voxel cap. measured_family decides which
+    of them are measured and which envelope the plan uses.
+    """
+    in_ch = modality_channels(dataset_json)
+    dataset_voxels = float(np.prod(median_shape, dtype=np.float64)) * dataset_json['numTraining']
+    envelopes, candidates = [], {}
+    envelope = geometry(initial_patch(spacing, median_shape), spacing)[0]
+    while envelope is not None:
+        patches = candidate_patches(envelope, spacing)
+        for patch in patches:
+            if patch_key(patch) in candidates:
+                continue
+            cap = round(dataset_voxels * BATCH_POLICY['max_dataset_covered'] / prod(patch))
+            batches = [BATCH_POLICY['minimum_batch_size']]
+            while 2 * batches[-1] <= cap:
+                batches.append(2 * batches[-1])
+            candidates[patch_key(patch)] = {
+                'patch': patch, 'batch_coverage_cap': cap, 'batch_sizes': batches,
+                'architectures': {size: architecture_for_patch(patch, spacing, in_ch, size)
+                                  for size in MODEL_CAPACITIES}}
+        envelopes.append([patch_key(patch) for patch in patches])
+        envelope = smaller_patch(envelope, spacing, median_shape)
+    return {'labels': dataset_json['labels'], 'regions_class_order': dataset_json.get('regions_class_order'),
+            'training_memory_budget_gib': training_memory_budget_gib(memory_gb),
+            'envelopes': envelopes, 'candidates': candidates}
+
+
+class MissingMeasurement(ValueError):
+    """The first measurement, in profiling order, that a profile lacks."""
+    def __init__(self, request):
+        self.request = request
+        super().__init__(
+            f"The VeloxSeg profile lacks {request['size']} {request['kind']} of {patch_key(request['patch'])} "
+            f"at batch {request['batch']}. Write the candidates with `veloxseg_planner candidates` and measure "
+            'them with `python nnunet/cost_profile.py --candidates <candidates.json> --output <profile.json>`')
+
+
+def measurement(family, profile, kind, key, batch):
+    """The profile row of one measurement; a row of another architecture is stale."""
+    candidate = family['candidates'][key]
+    size = MEASURED_SIZES[kind]
+    architecture = candidate['architectures'][size]
+    for row in profile['measurements']:
+        if (row['kind'], row['patch'], row['size'], row['batch']) == (kind, candidate['patch'], size, batch):
+            if row['architecture'] != architecture['arch_kwargs']:
+                raise ValueError(f'The VeloxSeg profile measured another {size} architecture for {key}; the planning '
+                                 'rules changed since profiling. Regenerate the candidates and measure them again.')
+            return row
+    raise MissingMeasurement({'kind': kind, 'patch': candidate['patch'], 'size': size, 'batch': batch,
+                              'architecture': architecture})
+
+
+def measured_family(family, profile):
+    """The envelope the plan uses and the batch of each of its trainable crops.
+
+    A crop trains at a batch when L's measured training peak reserved memory
+    fits the budget without running out of memory. Envelopes are walked in
+    chain order, measuring L at the minimum batch for each crop, until one has
+    a trainable crop. Each trainable crop then needs B batch-1 inference and L
+    at doubling batches until one does not fit or the coverage cap is reached;
+    its batch is the largest that fits. The first measurement the profile lacks
+    raises MissingMeasurement, which is how nnunet/cost_profile.py decides
+    what to measure next.
+    """
+    budget_mib = family['training_memory_budget_gib'] * 2 ** 10
+
+    def fits(key, batch):
+        row = measurement(family, profile, 'training', key, batch)
+        return not row['oom'] and row['peak_reserved_mib'] <= budget_mib
+
+    for envelope in family['envelopes']:
+        trainable = [key for key in envelope if fits(key, BATCH_POLICY['minimum_batch_size'])]
+        if trainable:
+            break
+    else:
+        raise ValueError('No candidate crop down to the minimum legal geometry trains L at the minimum batch '
+                         'within the training memory budget')
+    batches = {}
+    for key in trainable:
+        measurement(family, profile, 'inference', key, 1)
+        batches[key] = BATCH_POLICY['minimum_batch_size']
+        for batch in family['candidates'][key]['batch_sizes'][1:]:
+            if not fits(key, batch):
+                break
+            batches[key] = batch
+    return envelope, batches
+
+
+def select_patch(family, envelope, batches, profile):
     """Choose a trainable crop from measured B batch-1 memory (M1) and latency (t1).
 
     Crops that are the same model up to an axis permutation count once. Drop
     crops dominated on (coverage >=, M1 <=, t1 <=, one strict). Among the
     survivors covering at least PATCH_POLICY['coverage_fraction'] of the largest
     trainable crop, take the least M1, then lower t1, then larger coverage.
-    Returns the selected candidate and the candidate table.
+    Returns the selected key and the candidate table of the envelope.
     """
-    trainable = [patch_key(row['patch']) for row in candidates if row['trainable']]
-    missing = [key for key in trainable if 'B' not in profile['rows'].get(key, {})]
-    if missing:
-        raise ValueError(f'The VeloxSeg profile lacks B rows for trainable candidates {missing}. '
-                         'Write the candidates with `veloxseg_planner candidates` and measure them with '
-                         '`python nnunet/cost_profile.py --candidates <candidates.json> --output <profile.json>`')
-    by_key = {patch_key(row['patch']): row for row in candidates}
-    stale = [key for key in trainable
-             if profile['rows'][key]['B']['architecture'] != by_key[key]['architectures']['B']['arch_kwargs']]
-    if stale:
-        raise ValueError(f'The VeloxSeg profile measured other B architectures for {stale}; the planning rules '
-                         'changed since profiling. Regenerate the candidates and measure them again.')
-    costs = {}
-    for key in trainable:
-        row = profile['rows'][key]['B']
-        costs[key] = (prod(int(n) for n in key.split('x')), row['peak_allocated_mib'], row['median_ms'])
+    rows = {key: measurement(family, profile, 'inference', key, 1) for key in batches}
+    costs = {key: (prod(family['candidates'][key]['patch']), row['peak_allocated_mib'], row['median_ms'])
+             for key, row in rows.items()}
     # Crops with equal volume, parameters and measured memory are one model up to
     # an axis permutation. Latency of separate runs differs by noise, so keep the
     # first such crop in generation order (nnUNet's reduction order) instead.
-    order = {patch_key(row['patch']): index for index, row in enumerate(candidates)}
     distinct = {}
-    for key in sorted(trainable, key=order.get):
-        distinct.setdefault((costs[key][0], profile['rows'][key]['B']['parameters'], costs[key][1]), key)
-    distinct = sorted(distinct.values(), key=order.get)
+    for key in batches:
+        distinct.setdefault((costs[key][0], rows[key]['parameters'], costs[key][1]), key)
+    distinct = list(distinct.values())
 
     def dominated(key):
         cost = costs[key]
@@ -450,43 +414,30 @@ def select_patch(candidates, profile):
     largest = max(cost[0] for cost in costs.values())
     eligible = [key for key in pareto if costs[key][0] / largest >= PATCH_POLICY['coverage_fraction']]
     selected = min(eligible, key=lambda key: (costs[key][1], costs[key][2], -costs[key][0]))
-    table = [{'patch': row['patch'],
-              'coverage_fraction': prod(row['patch']) / largest,
+    table = [{'patch': family['candidates'][key]['patch'],
+              'coverage_fraction': prod(family['candidates'][key]['patch']) / largest,
               'm1_mib': costs[key][1] if key in costs else None,
               't1_ms': costs[key][2] if key in costs else None,
-              'trainable': row['trainable'], 'pareto': key in pareto, 'selected': key == selected}
-             for row, key in ((row, patch_key(row['patch'])) for row in candidates)]
-    return next(row for row in candidates if patch_key(row['patch']) == selected), table
+              'trainable': key in batches, 'pareto': key in pareto, 'selected': key == selected}
+             for key in envelope]
+    return selected, table
 
 
-def family_memory(architectures, label_manager, batch_size):
-    inventories = {size: estimate_training_tensors(architecture, label_manager, batch_size)
-                   for size, architecture in architectures.items()}
-    return inventories, max(row['estimated_reserved_bytes'] for row in inventories.values())
-
-
-def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb, profile):
+def plan_family(spacing, median_shape, dataset_json, memory_gb, profile):
     """Plan shared S/B/L geometry from nnUNet data rules and measured cost.
 
-    Candidates around nnUNet's physical envelope are filtered by L training
-    memory at the minimum batch, then chosen by select_patch from the B
-    batch-1 profile. The chosen crop's spare training memory becomes batch.
+    measured_family finds the trainable crops and their L batches, select_patch
+    chooses among them from the B batch-1 profile, and S/B/L share the chosen
+    crop and its batch.
     """
     if TRAINING_POLICY['total_updates'] % TRAINING_POLICY['num_iterations_per_epoch']:
         raise ValueError('total_updates must be a whole number of epochs')
-    candidates = candidate_family(spacing, median_shape, dataset_json, label_manager, memory_gb)
-    selected, table = select_patch(candidates, profile)
-    architectures, patch = selected['architectures'], selected['patch']
-    tensor_budget = training_tensor_budget(memory_gb)
-    batch = BATCH_POLICY['minimum_batch_size']
-    inventories, _ = family_memory(architectures, label_manager, batch)
-    dataset_voxels = float(np.prod(median_shape, dtype=np.float64)) * dataset_json['numTraining']
-    coverage_cap = round(dataset_voxels * BATCH_POLICY['max_dataset_covered'] / prod(patch))
-    while 2 * batch <= coverage_cap:
-        candidate, largest_cost = family_memory(architectures, label_manager, 2 * batch)
-        if largest_cost > tensor_budget:
-            break
-        batch, inventories = 2 * batch, candidate
+    family = candidate_family(spacing, median_shape, dataset_json, memory_gb)
+    envelope, batches = measured_family(family, profile)
+    key, table = select_patch(family, envelope, batches, profile)
+    candidate, batch = family['candidates'][key], batches[key]
+    measured = [measurement(family, profile, 'training', key, size)
+                for size in candidate['batch_sizes'] if size <= 2 * batch]
     epochs = TRAINING_POLICY['total_updates'] // TRAINING_POLICY['num_iterations_per_epoch']
     # nnUNet forces foreground crops only into the last batch slots.
     forced = batch - round(batch * (1 - TRAINING_POLICY['oversample_foreground_percent']))
@@ -497,17 +448,16 @@ def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb, p
             'model_size': size,
             'training': {**TRAINING_POLICY, 'num_epochs': epochs},
             'resources': {
-                'method': 'GPU-calibrated saved-tensor and fullres-output proxy; RTX3090 torch2.6/cu124 B references',
+                'method': 'Measured on the profiling GPU: L training peak reserved memory bounds the crop and '
+                          'batch; B batch-1 inference memory and latency select the crop',
                 'training_memory_target_gib': memory_gb,
                 'runtime_reserve_gib': TRAINING_RUNTIME_RESERVE_GIB,
-                'training_tensor_budget_gib': tensor_budget / 2 ** 30,
-                'memory_proxy_coefficients': MEMORY_PROXY_COEFFICIENTS.tolist(),
-                'batch_coverage_cap': coverage_cap,
+                'training_memory_budget_gib': family['training_memory_budget_gib'],
+                'batch_coverage_cap': candidate['batch_coverage_cap'],
                 'forced_foreground_fraction': forced / batch,
-                'estimated_training_reserved_gib': inventories[size]['estimated_reserved_bytes'] / 2 ** 30,
-                'parameters': inventories[size]['parameters'],
-                'training_flops_per_batch': inventories[size]['training_flops'],
-                'inference_flops_per_patch': inventories[size]['inference_flops'] / batch,
+                'measured_training_memory': [
+                    {'model_size': row['size'], 'batch': row['batch'], 'oom': row['oom'],
+                     'peak_reserved_gib': row['peak_reserved_mib'] / 2 ** 10} for row in measured],
                 'patch_selection': {
                     'policy': PATCH_POLICY,
                     'profile_gpu': profile['gpu'],
@@ -516,5 +466,5 @@ def plan_family(spacing, median_shape, dataset_json, label_manager, memory_gb, p
                 },
             },
         }
-        for size, architecture in architectures.items()
+        for size, architecture in candidate['architectures'].items()
     }

@@ -9,13 +9,12 @@ from nnunetv2.configuration import ANISO_THRESHOLD
 from nnunetv2.experiment_planning.experiment_planners.default_experiment_planner import ExperimentPlanner
 from nnunetv2.experiment_planning.experiment_planners.veloxseg_rules import (
     MODEL_POLICY, MODEL_CAPACITIES, TRAINING_POLICY, TRAINING_MEMORY_TARGET_GIB,
-    candidate_family, patch_key, plan_family,
+    candidate_family, plan_family,
 )
 from nnunetv2.imageio.reader_writer_registry import determine_reader_writer_from_dataset_json
 from nnunetv2.paths import nnUNet_preprocessed, nnUNet_raw
 from nnunetv2.preprocessing.resampling.default_resampling import compute_new_shape
 from nnunetv2.utilities.json_export import recursive_fix_for_json_export
-from nnunetv2.utilities.label_handling.label_handling import LabelManager
 
 PROFILE_FILE = 'veloxseg_profile.json'
 
@@ -30,31 +29,25 @@ def dataset_geometry(planner):
     spacing = spacing[forward]
     if len(spacing) != 3 or min(median_shape) <= 1:
         raise ValueError('VeloxSegPlanner currently supports 3D full-resolution datasets')
-    dataset = planner.dataset_json
-    labels = LabelManager(dataset['labels'], regions_class_order=dataset.get('regions_class_order'))
-    return spacing, median_shape, labels, forward, backward
+    return spacing, median_shape, forward, backward
 
 
 def candidate_manifest(planner):
-    """S/B/L architectures of every candidate crop, the input of nnunet/cost_profile.py."""
-    spacing, median_shape, labels, _, _ = dataset_geometry(planner)
-    candidates = candidate_family(spacing, median_shape, planner.dataset_json, labels,
-                                  planner.UNet_vram_target_GB)
+    """Candidate crops along nnUNet's envelope chain, the input of nnunet/cost_profile.py."""
+    spacing, median_shape, _, _ = dataset_geometry(planner)
     manifest = {
         'dataset_name': planner.dataset_name,
-        'n_classes': labels.num_segmentation_heads,
         'gpu_memory_target_in_gb': planner.UNet_vram_target_GB,
-        'candidates': [{'key': patch_key(row['patch']), **row} for row in candidates],
+        **candidate_family(spacing, median_shape, planner.dataset_json, planner.UNet_vram_target_GB),
     }
     recursive_fix_for_json_export(manifest)
     return manifest
 
 
 def build_plans(planner, profile):
-    spacing, median_shape, labels, forward, backward = dataset_geometry(planner)
+    spacing, median_shape, forward, backward = dataset_geometry(planner)
     fingerprint = planner.dataset_fingerprint
-    family = plan_family(spacing, median_shape, planner.dataset_json, labels,
-                         planner.UNet_vram_target_GB, profile)
+    family = plan_family(spacing, median_shape, planner.dataset_json, planner.UNet_vram_target_GB, profile)
     normalizations, masks = planner.determine_normalization_scheme_and_whether_mask_is_used_for_norm()
     data_fn, data_kwargs, seg_fn, seg_kwargs = planner.determine_resampling()
     probabilities_fn, probabilities_kwargs = planner.determine_segmentation_softmax_export_fn()
@@ -108,7 +101,7 @@ class VeloxSegPlanner(ExperimentPlanner):
             candidates = destination / 'veloxseg_candidates.json'
             dataset_id = int(self.dataset_name[len('Dataset'):].split('_')[0])
             raise FileNotFoundError(
-                f'{profile} is missing. VeloxSeg selects the crop from measured CUDA cost:\n'
+                f'{profile} is missing. VeloxSeg plans the crop and batch from CUDA measurements:\n'
                 f'  1. python -m nnunetv2.experiment_planning.experiment_planners.veloxseg_planner candidates '
                 f'--dataset-name {self.dataset_name} --dataset-json {Path(nnUNet_raw) / self.dataset_name / "dataset.json"} '
                 f'--fingerprint {destination / "dataset_fingerprint.json"} '
@@ -160,7 +153,8 @@ def main():
         command.add_argument('--dataset-json', required=True, type=Path)
         command.add_argument('--fingerprint', required=True, type=Path)
         command.add_argument('--gpu-memory-target-in-gb', type=float, default=TRAINING_MEMORY_TARGET_GIB,
-                             help='Training tensor target in GiB; it bounds trainable crops and selects the batch')
+                             help='Training memory target in GiB; less the runtime reserve, it bounds the '
+                                  'measured L training memory of trainable crops and of the batch')
         command.add_argument('--output', required=True, type=Path)
         if name == 'plan':
             command.add_argument('--profile', required=True, type=Path,

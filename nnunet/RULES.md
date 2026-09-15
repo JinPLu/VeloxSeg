@@ -404,7 +404,7 @@ installer after modifying nnUNet extension files. Existing unrelated packages
 with those names require a separate environment.
 
 Set `nnUNet_raw`, `nnUNet_preprocessed`, `nnUNet_results` to your data/output
-locations and `nnUNet_compile=false` for the checked path. In the dataset's
+locations. In the dataset's
 `dataset.json`, add explicit channel groups in channel order:
 
 ```json

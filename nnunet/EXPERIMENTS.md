@@ -14,7 +14,6 @@ python nnunet/install.py
 export nnUNet_raw=/your/data/nnUNet_raw
 export nnUNet_preprocessed=/your/experiment/nnUNet_preprocessed
 export nnUNet_results=/your/experiment/results
-export nnUNet_compile=false
 ```
 
 Prepare the raw datasets in nnUNet format with the bundled dataset metadata and
